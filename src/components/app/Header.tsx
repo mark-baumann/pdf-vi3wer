@@ -24,7 +24,7 @@ export function Header({
   return (
     <header className="flex items-center gap-2 border-b border-border px-4 py-3">
       {showMenu && (
-        <Button variant="ghost" size="icon" onClick={onMenuToggle}>
+        <Button variant="ghost" size="icon" onClick={onMenuToggle} className="self-end mb-0.5">
           <Menu className="h-5 w-5" />
         </Button>
       )}
