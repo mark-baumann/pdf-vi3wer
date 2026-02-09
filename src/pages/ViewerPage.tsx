@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Bookmark, BookmarkCheck, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,13 @@ import { useDocument, useUpdateDocument } from '@/hooks/useDocuments';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { ThemeToggle } from '@/components/app/ThemeToggle';
+import { Document, Page, pdfjs } from 'react-pdf';
 import type { PageBookmark } from '@/types/pdf';
+
+pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url,
+).toString();
 
 export default function ViewerPage() {
   const { id } = useParams<{ id: string }>();
@@ -22,6 +28,10 @@ export default function ViewerPage() {
   const [bookmarkPage, setBookmarkPage] = useState('1');
   const [bookmarkLabel, setBookmarkLabel] = useState('');
   const [currentPage, setCurrentPage] = useState<number | null>(null);
+  const [numPages, setNumPages] = useState(0);
+  const [pageWidth, setPageWidth] = useState<number | null>(null);
+  const viewerRef = useRef<HTMLDivElement>(null);
+  const pageRefs = useRef(new Map<number, HTMLDivElement>());
 
   const blobUrl = useMemo(() => {
     if (!doc?.data) return null;
@@ -29,10 +39,29 @@ export default function ViewerPage() {
     return URL.createObjectURL(blob);
   }, [doc?.data]);
 
-  const pdfSrc = useMemo(() => {
-    if (!blobUrl) return null;
-    return currentPage ? `${blobUrl}#page=${currentPage}` : blobUrl;
-  }, [blobUrl, currentPage]);
+  useEffect(() => {
+    return () => {
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    };
+  }, [blobUrl]);
+
+  useEffect(() => {
+    if (!viewerRef.current) return;
+    const updateWidth = () => {
+      if (!viewerRef.current) return;
+      setPageWidth(Math.min(viewerRef.current.clientWidth - 32, 960));
+    };
+    updateWidth();
+    const resizeObserver = new ResizeObserver(updateWidth);
+    resizeObserver.observe(viewerRef.current);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!currentPage) return;
+    const target = pageRefs.current.get(currentPage);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [currentPage]);
 
   const addBookmark = useCallback(() => {
     if (!doc) return;
@@ -57,6 +86,10 @@ export default function ViewerPage() {
 
   const goToBookmark = useCallback((page: number) => {
     setCurrentPage(page);
+  }, []);
+
+  const handleDocumentLoad = useCallback(({ numPages: totalPages }: { numPages: number }) => {
+    setNumPages(totalPages);
   }, []);
 
   if (isLoading) {
@@ -140,13 +173,42 @@ export default function ViewerPage() {
 
       <div className="flex flex-1 min-h-0">
         {/* PDF Viewer */}
-        <div className="flex-1">
-          {pdfSrc && (
-            <iframe
-              src={pdfSrc}
-              className="w-full h-full border-0"
-              title={doc.name}
-            />
+        <div className="flex-1 overflow-auto" ref={viewerRef}>
+          {blobUrl && (
+            <div className="flex justify-center px-4 py-6">
+              <Document
+                file={blobUrl}
+                onLoadSuccess={handleDocumentLoad}
+                loading={<div className="text-muted-foreground">PDF wird geladen…</div>}
+                error={<div className="text-destructive">PDF konnte nicht geladen werden.</div>}
+              >
+                <div className="flex flex-col gap-6">
+                  {Array.from(new Array(numPages), (_, index) => {
+                    const pageNumber = index + 1;
+                    return (
+                      <div
+                        key={`page_${pageNumber}`}
+                        ref={(node) => {
+                          if (node) {
+                            pageRefs.current.set(pageNumber, node);
+                          } else {
+                            pageRefs.current.delete(pageNumber);
+                          }
+                        }}
+                        className="flex justify-center"
+                      >
+                        <Page
+                          pageNumber={pageNumber}
+                          width={pageWidth ?? undefined}
+                          renderAnnotationLayer={false}
+                          renderTextLayer={false}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </Document>
+            </div>
           )}
         </div>
 
