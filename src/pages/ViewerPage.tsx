@@ -180,7 +180,7 @@ export default function ViewerPage() {
                 file={blobUrl}
                 onLoadSuccess={handleDocumentLoad}
                 loading={<div className="text-muted-foreground">PDF wird geladen…</div>}
-                error={<div className="text-destructive">PDF konnte nicht geladen werden.</div>}
+                error={<div className="text-destructive">PDF konnte nicht angezeigt werden.</div>}
               >
                 <div className="flex flex-col gap-6">
                   {Array.from(new Array(numPages), (_, index) => {
@@ -202,6 +202,7 @@ export default function ViewerPage() {
                           width={pageWidth ?? undefined}
                           renderAnnotationLayer={false}
                           renderTextLayer={false}
+                          renderMode="svg"
                         />
                       </div>
                     );
