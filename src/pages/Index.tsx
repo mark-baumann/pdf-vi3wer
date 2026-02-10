@@ -7,6 +7,7 @@ import { useDocuments, useAddDocument } from '@/hooks/useDocuments';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { toast } from 'sonner';
+import { uploadPdfToBlob } from '@/lib/blob';
 import type { PDFDocument, ViewMode, SortOption } from '@/types/pdf';
 
 export default function Index() {
@@ -45,10 +46,24 @@ export default function Index() {
     if (pdfFiles.length === 0) { toast.error('Nur PDF-Dateien werden unterstützt.'); return; }
     for (const file of pdfFiles) {
       const data = await file.arrayBuffer();
+      const id = crypto.randomUUID();
+
+      let blobUrl: string | null = null;
+      let isSyncedToBlob = false;
+
+      try {
+        blobUrl = await uploadPdfToBlob(file, id);
+        isSyncedToBlob = true;
+      } catch (error) {
+        console.warn('Blob sync failed, keeping browser cache only:', error);
+      }
+
       const doc: PDFDocument = {
-        id: crypto.randomUUID(),
+        id,
         name: file.name.replace(/\.pdf$/i, ''),
         size: file.size, data,
+        blobUrl,
+        isSyncedToBlob,
         folderId: selectedFolderId,
         tagIds: [],
         createdAt: Date.now(),

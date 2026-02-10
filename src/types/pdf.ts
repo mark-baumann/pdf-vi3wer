@@ -3,6 +3,8 @@ export interface PDFDocument {
   name: string;
   size: number;
   data: ArrayBuffer;
+  blobUrl?: string | null;
+  isSyncedToBlob?: boolean;
   folderId: string | null;
   tagIds: string[];
   createdAt: number;

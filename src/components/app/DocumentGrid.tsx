@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { FileText, MoreVertical, FolderInput, Tag, Trash2, Clock } from 'lucide-react';
+import { FileText, MoreVertical, FolderInput, Tag, Trash2, Cloud } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
@@ -68,7 +68,10 @@ export function DocumentGrid({ documents, viewMode }: Props) {
             onClick={() => openDoc(doc)}
           >
             <FileText className="h-5 w-5 text-primary shrink-0" />
-            <span className="font-medium text-sm flex-1 truncate">{doc.name}</span>
+            <span className="font-medium text-sm flex-1 truncate flex items-center gap-1.5">
+              <span className="truncate">{doc.name}</span>
+              {(doc.isSyncedToBlob || !!doc.blobUrl) && <Cloud className="h-3.5 w-3.5 text-sky-500 shrink-0" />}
+            </span>
             <div className="hidden sm:flex items-center gap-1.5">
               {doc.tagIds.map(tid => {
                 const tag = tags.find(t => t.id === tid);
@@ -101,7 +104,10 @@ export function DocumentGrid({ documents, viewMode }: Props) {
             </div>
           </div>
           <div className="p-2.5">
-            <p className="text-sm font-medium truncate">{doc.name}</p>
+            <p className="text-sm font-medium truncate flex items-center gap-1.5">
+              <span className="truncate">{doc.name}</span>
+              {(doc.isSyncedToBlob || !!doc.blobUrl) && <Cloud className="h-3.5 w-3.5 text-sky-500 shrink-0" />}
+            </p>
             <div className="flex items-center gap-1 mt-1">
               {doc.tagIds.slice(0, 3).map(tid => {
                 const tag = tags.find(t => t.id === tid);
