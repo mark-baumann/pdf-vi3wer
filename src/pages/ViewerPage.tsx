@@ -35,8 +35,16 @@ export default function ViewerPage() {
 
   const pdfFile = useMemo(() => {
     if (!doc?.data) return null;
-    return { data: new Uint8Array(doc.data) };
+    // react-pdf/pdf.js may transfer the passed ArrayBuffer to a worker.
+    // Clone the buffer so cached IndexedDB/query data stays reusable when revisiting a document.
+    return { data: new Uint8Array(doc.data.slice(0)) };
   }, [doc?.data]);
+
+  useEffect(() => {
+    setNumPages(0);
+    setCurrentPage(null);
+    pageRefs.current.clear();
+  }, [id]);
 
   useEffect(() => {
     if (!viewerRef.current) return;
@@ -170,6 +178,7 @@ export default function ViewerPage() {
           {pdfFile && (
             <div className="flex justify-center px-4 py-6">
               <Document
+                key={id}
                 file={pdfFile}
                 onLoadSuccess={handleDocumentLoad}
                 loading={<div className="text-muted-foreground">PDF wird geladen…</div>}
