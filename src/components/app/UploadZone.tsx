@@ -28,7 +28,6 @@ export function UploadZone({ currentFolderId }: UploadZoneProps) {
         size: file.size,
         data,
         folderId: currentFolderId,
-        tagIds: [],
         createdAt: Date.now(),
         lastOpenedAt: Date.now(),
         bookmarks: [],

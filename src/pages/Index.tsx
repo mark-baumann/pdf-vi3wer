@@ -2,7 +2,6 @@ import { useState, useMemo, useRef, useCallback } from 'react';
 import { Header } from '@/components/app/Header';
 import { AppSidebar } from '@/components/app/AppSidebar';
 import { DocumentGrid } from '@/components/app/DocumentGrid';
-import { UploadZone } from '@/components/app/UploadZone';
 import { useDocuments, useAddDocument } from '@/hooks/useDocuments';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
@@ -12,7 +11,6 @@ import type { PDFDocument, ViewMode, SortOption } from '@/types/pdf';
 
 export default function Index() {
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
-  const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [sortBy, setSortBy] = useState<SortOption>('date');
@@ -26,7 +24,6 @@ export default function Index() {
   const filteredDocs = useMemo(() => {
     let docs = [...documents];
     if (selectedFolderId) docs = docs.filter(d => d.folderId === selectedFolderId);
-    if (selectedTagId) docs = docs.filter(d => d.tagIds.includes(selectedTagId));
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       docs = docs.filter(d => d.name.toLowerCase().includes(q));
@@ -37,7 +34,7 @@ export default function Index() {
       return b.createdAt - a.createdAt;
     });
     return docs;
-  }, [documents, selectedFolderId, selectedTagId, searchQuery, sortBy]);
+  }, [documents, selectedFolderId, searchQuery, sortBy]);
 
   const handleUpload = useCallback(() => fileInputRef.current?.click(), []);
 
@@ -45,27 +42,25 @@ export default function Index() {
     const pdfFiles = Array.from(files).filter(f => f.type === 'application/pdf');
     if (pdfFiles.length === 0) { toast.error('Nur PDF-Dateien werden unterstützt.'); return; }
     for (const file of pdfFiles) {
-      const data = await file.arrayBuffer();
       const id = crypto.randomUUID();
 
-      let blobUrl: string | null = null;
-      let isSyncedToBlob = false;
+      let blobUrl: string;
 
       try {
         blobUrl = await uploadPdfToBlob(file, id);
-        isSyncedToBlob = true;
       } catch (error) {
-        console.warn('Blob sync failed, keeping browser cache only:', error);
+        console.error('Blob upload failed:', error);
+        toast.error(`Upload fehlgeschlagen: ${file.name}`);
+        continue;
       }
 
       const doc: PDFDocument = {
         id,
         name: file.name.replace(/\.pdf$/i, ''),
-        size: file.size, data,
+        size: file.size,
         blobUrl,
-        isSyncedToBlob,
+        isSyncedToBlob: true,
         folderId: selectedFolderId,
-        tagIds: [],
         createdAt: Date.now(),
         lastOpenedAt: Date.now(),
         bookmarks: [],
@@ -84,9 +79,7 @@ export default function Index() {
   const sidebarContent = (
     <AppSidebar
       selectedFolderId={selectedFolderId}
-      selectedTagId={selectedTagId}
       onFolderSelect={id => { setSelectedFolderId(id); setSidebarOpen(false); }}
-      onTagSelect={id => { setSelectedTagId(id); setSidebarOpen(false); }}
     />
   );
 
