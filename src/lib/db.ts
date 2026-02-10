@@ -1,20 +1,27 @@
 import { openDB, type DBSchema } from 'idb';
-import type { PDFDocument, Folder } from '@/types/pdf';
+import type { PDFDocument, Folder, Tag } from '@/types/pdf';
 
 interface PdfDB extends DBSchema {
   documents: { key: string; value: PDFDocument; indexes: { 'by-folder': string } };
   folders: { key: string; value: Folder };
+  tags: { key: string; value: Tag };
 }
 
 const DB_NAME = 'pdf-manager';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 function getDB() {
   return openDB<PdfDB>(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      const docStore = db.createObjectStore('documents', { keyPath: 'id' });
-      docStore.createIndex('by-folder', 'folderId');
-      db.createObjectStore('folders', { keyPath: 'id' });
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) {
+        const docStore = db.createObjectStore('documents', { keyPath: 'id' });
+        docStore.createIndex('by-folder', 'folderId');
+        db.createObjectStore('folders', { keyPath: 'id' });
+      }
+
+      if (oldVersion < 2 && !db.objectStoreNames.contains('tags')) {
+        db.createObjectStore('tags', { keyPath: 'id' });
+      }
     },
   });
 }
@@ -72,4 +79,29 @@ export async function deleteFolder(id: string) {
   }
   await tx.done;
   await db.delete('folders', id);
+}
+
+// Tags
+export async function getAllTags() {
+  const db = await getDB();
+  return db.getAll('tags');
+}
+
+export async function addTag(tag: Tag) {
+  const db = await getDB();
+  await db.put('tags', tag);
+}
+
+export async function deleteTag(id: string) {
+  const db = await getDB();
+  const docs = await db.getAll('documents');
+  const tx = db.transaction('documents', 'readwrite');
+  for (const doc of docs) {
+    if (doc.tagIds.includes(id)) {
+      doc.tagIds = doc.tagIds.filter(tagId => tagId !== id);
+      await tx.store.put(doc);
+    }
+  }
+  await tx.done;
+  await db.delete('tags', id);
 }
