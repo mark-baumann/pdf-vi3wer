@@ -1,13 +1,10 @@
 import { useNavigate } from 'react-router-dom';
-import { FileText, MoreVertical, FolderInput, Tag, Trash2, Cloud } from 'lucide-react';
+import { FileText, MoreVertical, FolderInput, Trash2, Cloud } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
-import { cn } from '@/lib/utils';
 import { useFolders } from '@/hooks/useFolders';
-import { useTags } from '@/hooks/useTags';
 import { useUpdateDocument, useDeleteDocument } from '@/hooks/useDocuments';
-import { TagAssignPopover } from './TagManager';
 import type { PDFDocument, ViewMode } from '@/types/pdf';
 
 function formatSize(bytes: number) {
@@ -28,7 +25,6 @@ interface Props {
 export function DocumentGrid({ documents, viewMode }: Props) {
   const navigate = useNavigate();
   const { data: folders = [] } = useFolders();
-  const { data: tags = [] } = useTags();
   const updateDoc = useUpdateDocument();
   const deleteDoc = useDeleteDocument();
 
@@ -39,13 +35,6 @@ export function DocumentGrid({ documents, viewMode }: Props) {
 
   const moveToFolder = (doc: PDFDocument, folderId: string | null) => {
     updateDoc.mutate({ ...doc, folderId });
-  };
-
-  const toggleTag = (doc: PDFDocument, tagId: string) => {
-    const tagIds = doc.tagIds.includes(tagId)
-      ? doc.tagIds.filter(t => t !== tagId)
-      : [...doc.tagIds, tagId];
-    updateDoc.mutate({ ...doc, tagIds });
   };
 
   if (documents.length === 0) {
@@ -72,17 +61,9 @@ export function DocumentGrid({ documents, viewMode }: Props) {
               <span className="truncate">{doc.name}</span>
               {(doc.isSyncedToBlob || !!doc.blobUrl) && <Cloud className="h-3.5 w-3.5 text-sky-500 shrink-0" />}
             </span>
-            <div className="hidden sm:flex items-center gap-1.5">
-              {doc.tagIds.map(tid => {
-                const tag = tags.find(t => t.id === tid);
-                return tag ? (
-                  <span key={tid} className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: tag.color }} />
-                ) : null;
-              })}
-            </div>
             <span className="text-xs text-muted-foreground hidden sm:block">{formatSize(doc.size)}</span>
             <span className="text-xs text-muted-foreground hidden sm:block">{formatDate(doc.createdAt)}</span>
-            <DocMenu doc={doc} folders={folders} onMoveToFolder={moveToFolder} onToggleTag={toggleTag} onDelete={() => deleteDoc.mutate(doc.id)} />
+            <DocMenu doc={doc} folders={folders} onMoveToFolder={moveToFolder} onDelete={() => deleteDoc.mutate(doc.id)} />
           </div>
         ))}
       </div>
@@ -100,7 +81,7 @@ export function DocumentGrid({ documents, viewMode }: Props) {
           <div className="aspect-[3/4] bg-muted/50 flex items-center justify-center relative">
             <FileText className="h-12 w-12 text-primary/30" />
             <div className="absolute top-1 right-1" onClick={e => e.stopPropagation()}>
-              <DocMenu doc={doc} folders={folders} onMoveToFolder={moveToFolder} onToggleTag={toggleTag} onDelete={() => deleteDoc.mutate(doc.id)} />
+              <DocMenu doc={doc} folders={folders} onMoveToFolder={moveToFolder} onDelete={() => deleteDoc.mutate(doc.id)} />
             </div>
           </div>
           <div className="p-2.5">
@@ -109,12 +90,6 @@ export function DocumentGrid({ documents, viewMode }: Props) {
               {(doc.isSyncedToBlob || !!doc.blobUrl) && <Cloud className="h-3.5 w-3.5 text-sky-500 shrink-0" />}
             </p>
             <div className="flex items-center gap-1 mt-1">
-              {doc.tagIds.slice(0, 3).map(tid => {
-                const tag = tags.find(t => t.id === tid);
-                return tag ? (
-                  <span key={tid} className="h-2 w-2 rounded-full" style={{ backgroundColor: tag.color }} />
-                ) : null;
-              })}
               <span className="text-[10px] text-muted-foreground ml-auto">{formatSize(doc.size)}</span>
             </div>
           </div>
@@ -124,10 +99,9 @@ export function DocumentGrid({ documents, viewMode }: Props) {
   );
 }
 
-function DocMenu({ doc, folders, onMoveToFolder, onToggleTag, onDelete }: {
+function DocMenu({ doc, folders, onMoveToFolder, onDelete }: {
   doc: PDFDocument; folders: { id: string; name: string }[];
   onMoveToFolder: (doc: PDFDocument, folderId: string | null) => void;
-  onToggleTag: (doc: PDFDocument, tagId: string) => void;
   onDelete: () => void;
 }) {
   return (
@@ -153,11 +127,6 @@ function DocMenu({ doc, folders, onMoveToFolder, onToggleTag, onDelete }: {
             </DropdownMenuSubContent>
           </DropdownMenuSub>
         )}
-        <TagAssignPopover documentTagIds={doc.tagIds} onToggleTag={tid => onToggleTag(doc, tid)}>
-          <DropdownMenuItem onSelect={e => e.preventDefault()}>
-            <Tag className="h-4 w-4 mr-2" /> Tags
-          </DropdownMenuItem>
-        </TagAssignPopover>
         <DropdownMenuSeparator />
         <DropdownMenuItem className="text-destructive" onClick={onDelete}>
           <Trash2 className="h-4 w-4 mr-2" /> Löschen

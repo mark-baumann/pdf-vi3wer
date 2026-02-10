@@ -34,11 +34,12 @@ export default function ViewerPage() {
   const pageRefs = useRef(new Map<number, HTMLDivElement>());
 
   const pdfFile = useMemo(() => {
+    if (doc?.blobUrl) return doc.blobUrl;
     if (!doc?.data) return null;
     // react-pdf/pdf.js may transfer the passed ArrayBuffer to a worker.
     // Clone the buffer so cached IndexedDB/query data stays reusable when revisiting a document.
     return { data: new Uint8Array(doc.data.slice(0)) };
-  }, [doc?.data]);
+  }, [doc?.blobUrl, doc?.data]);
 
   useEffect(() => {
     setNumPages(0);
@@ -101,6 +102,15 @@ export default function ViewerPage() {
     return (
       <div className="flex flex-col items-center justify-center h-screen text-muted-foreground">
         <p>Dokument nicht gefunden.</p>
+        <Button variant="ghost" className="mt-4" onClick={() => navigate('/')}>Zurück</Button>
+      </div>
+    );
+  }
+
+  if (!pdfFile) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen text-muted-foreground">
+        <p>PDF-Datei nicht verfügbar.</p>
         <Button variant="ghost" className="mt-4" onClick={() => navigate('/')}>Zurück</Button>
       </div>
     );
