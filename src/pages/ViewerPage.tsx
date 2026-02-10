@@ -33,17 +33,10 @@ export default function ViewerPage() {
   const viewerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef(new Map<number, HTMLDivElement>());
 
-  const blobUrl = useMemo(() => {
+  const pdfFile = useMemo(() => {
     if (!doc?.data) return null;
-    const blob = new Blob([doc.data], { type: 'application/pdf' });
-    return URL.createObjectURL(blob);
+    return { data: new Uint8Array(doc.data) };
   }, [doc?.data]);
-
-  useEffect(() => {
-    return () => {
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
-    };
-  }, [blobUrl]);
 
   useEffect(() => {
     if (!viewerRef.current) return;
@@ -174,13 +167,13 @@ export default function ViewerPage() {
       <div className="flex flex-1 min-h-0">
         {/* PDF Viewer */}
         <div className="flex-1 overflow-auto" ref={viewerRef}>
-          {blobUrl && (
+          {pdfFile && (
             <div className="flex justify-center px-4 py-6">
               <Document
-                file={blobUrl}
+                file={pdfFile}
                 onLoadSuccess={handleDocumentLoad}
                 loading={<div className="text-muted-foreground">PDF wird geladen…</div>}
-                error={<div className="text-destructive">PDF konnte nicht angezeigt werden.</div>}
+                error={<div className="text-destructive">PDF konnte nicht geladen werden.</div>}
               >
                 <div className="flex flex-col gap-6">
                   {Array.from(new Array(numPages), (_, index) => {
