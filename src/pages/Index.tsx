@@ -55,29 +55,14 @@ export default function Index() {
         lastOpenedAt: Date.now(),
       };
 
-      const canUploadToBlob = Boolean(
-        import.meta.env.BLOB_READ_WRITE_TOKEN ?? import.meta.env.VITE_BLOB_READ_WRITE_TOKEN,
-      );
-
       try {
-        if (canUploadToBlob) {
-          const blobUrl = await uploadPdfToBlob(file, id);
-          await addDoc.mutateAsync({
-            ...baseDoc,
-            blobUrl,
-            isSyncedToBlob: true,
-            bookmarks: [],
-          });
-        } else {
-          const data = await file.arrayBuffer();
-          await addDoc.mutateAsync({
-            ...baseDoc,
-            data,
-            isSyncedToBlob: false,
-            bookmarks: [],
-          });
-          localFallbackUploads += 1;
-        }
+        const blobUrl = await uploadPdfToBlob(file, id);
+        await addDoc.mutateAsync({
+          ...baseDoc,
+          blobUrl,
+          isSyncedToBlob: true,
+          bookmarks: [],
+        });
         successfulUploads += 1;
       } catch (error) {
         console.error('Blob upload failed, fallback to local storage:', error);
