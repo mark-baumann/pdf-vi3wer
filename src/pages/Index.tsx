@@ -55,7 +55,9 @@ export default function Index() {
         lastOpenedAt: Date.now(),
       };
 
-      const canUploadToBlob = Boolean(import.meta.env.VITE_BLOB_READ_WRITE_TOKEN);
+      const canUploadToBlob = Boolean(
+        import.meta.env.BLOB_READ_WRITE_TOKEN ?? import.meta.env.VITE_BLOB_READ_WRITE_TOKEN,
+      );
 
       try {
         if (canUploadToBlob) {
