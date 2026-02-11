@@ -3,6 +3,23 @@ import { getAllDocuments, getDocument, addDocument, updateDocument, deleteDocume
 import { getBlobDocuments } from '@/lib/blob';
 import type { PDFDocument } from '@/types/pdf';
 
+function getDocumentIdCandidates(routeId: string) {
+  const candidates = new Set([routeId]);
+
+  if (routeId.startsWith('blob-')) {
+    const blobPath = routeId.slice('blob-'.length);
+    candidates.add(`blob-${encodeURIComponent(blobPath)}`);
+
+    try {
+      candidates.add(`blob-${encodeURIComponent(decodeURIComponent(blobPath))}`);
+    } catch {
+      // Ignore malformed encodings and keep available candidates.
+    }
+  }
+
+  return [...candidates];
+}
+
 async function getAllDocumentsWithBlobFallback() {
   const [localDocuments, blobDocuments] = await Promise.all([
     getAllDocuments(),
@@ -23,13 +40,17 @@ export function useDocument(id: string) {
   return useQuery({
     queryKey: ['documents', id],
     queryFn: async () => {
-      const localDocument = await getDocument(id);
-      if (localDocument) {
-        return localDocument;
+      const idCandidates = getDocumentIdCandidates(id);
+
+      for (const candidateId of idCandidates) {
+        const localDocument = await getDocument(candidateId);
+        if (localDocument) {
+          return localDocument;
+        }
       }
 
       const blobDocuments = await getBlobDocuments().catch(() => []);
-      return blobDocuments.find((doc) => doc.id === id) ?? null;
+      return blobDocuments.find((doc) => idCandidates.includes(doc.id)) ?? null;
     },
     enabled: !!id,
   });
