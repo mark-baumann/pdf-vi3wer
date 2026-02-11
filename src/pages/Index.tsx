@@ -41,33 +41,68 @@ export default function Index() {
   const processFiles = useCallback(async (files: FileList) => {
     const pdfFiles = Array.from(files).filter(f => f.type === 'application/pdf');
     if (pdfFiles.length === 0) { toast.error('Nur PDF-Dateien werden unterstützt.'); return; }
+    let successfulUploads = 0;
+    let localFallbackUploads = 0;
+
     for (const file of pdfFiles) {
       const id = crypto.randomUUID();
-
-      let blobUrl: string;
-
-      try {
-        blobUrl = await uploadPdfToBlob(file, id);
-      } catch (error) {
-        console.error('Blob upload failed:', error);
-        toast.error(`Upload fehlgeschlagen: ${file.name}`);
-        continue;
-      }
-
-      const doc: PDFDocument = {
+      const baseDoc: Omit<PDFDocument, 'bookmarks'> = {
         id,
         name: file.name.replace(/\.pdf$/i, ''),
         size: file.size,
-        blobUrl,
-        isSyncedToBlob: true,
         folderId: selectedFolderId,
         createdAt: Date.now(),
         lastOpenedAt: Date.now(),
-        bookmarks: [],
       };
-      await addDoc.mutateAsync(doc);
+
+      const canUploadToBlob = Boolean(import.meta.env.VITE_BLOB_READ_WRITE_TOKEN);
+
+      try {
+        if (canUploadToBlob) {
+          const blobUrl = await uploadPdfToBlob(file, id);
+          await addDoc.mutateAsync({
+            ...baseDoc,
+            blobUrl,
+            isSyncedToBlob: true,
+            bookmarks: [],
+          });
+        } else {
+          const data = await file.arrayBuffer();
+          await addDoc.mutateAsync({
+            ...baseDoc,
+            data,
+            isSyncedToBlob: false,
+            bookmarks: [],
+          });
+          localFallbackUploads += 1;
+        }
+        successfulUploads += 1;
+      } catch (error) {
+        console.error('Blob upload failed, fallback to local storage:', error);
+        try {
+          const data = await file.arrayBuffer();
+          await addDoc.mutateAsync({
+            ...baseDoc,
+            data,
+            isSyncedToBlob: false,
+            bookmarks: [],
+          });
+          localFallbackUploads += 1;
+          successfulUploads += 1;
+        } catch (fallbackError) {
+          console.error('Local document storage failed:', fallbackError);
+          toast.error(`Upload fehlgeschlagen: ${file.name}`);
+        }
+      }
     }
-    toast.success(`${pdfFiles.length} Dokument${pdfFiles.length > 1 ? 'e' : ''} hochgeladen.`);
+
+    if (successfulUploads > 0) {
+      toast.success(`${successfulUploads} Dokument${successfulUploads > 1 ? 'e' : ''} hochgeladen.`);
+    }
+
+    if (localFallbackUploads > 0) {
+      toast.warning(`${localFallbackUploads} Dokument${localFallbackUploads > 1 ? 'e wurden' : ' wurde'} lokal gespeichert (ohne Vercel Blob).`);
+    }
   }, [addDoc, selectedFolderId]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => e.preventDefault(), []);
