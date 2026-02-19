@@ -1,21 +1,14 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   ChevronLeft,
   ChevronRight,
   ZoomIn,
   ZoomOut,
-  RotateCcw,
   X,
   FileText,
   Loader2,
+  Download,
 } from "lucide-react";
-
-// pdfjs v3 is loaded via CDN in index.html as window.pdfjsLib
-declare global {
-  interface Window {
-    pdfjsLib: any;
-  }
-}
 
 interface PdfViewerProps {
   file: File;
@@ -25,6 +18,11 @@ interface PdfViewerProps {
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 3.0;
 const SCALE_STEP = 0.25;
+
+// Render PDF pages to canvas via pdf.js (loaded globally from CDN)
+declare global {
+  interface Window { pdfjsLib: any; }
+}
 
 export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
   const [numPages, setNumPages] = useState(0);
@@ -37,56 +35,74 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pdfDocRef = useRef<any>(null);
   const renderTaskRef = useRef<any>(null);
+  const objectUrlRef = useRef<string | null>(null);
 
-  // Load the PDF document once the file changes
+  // Load PDF document
   useEffect(() => {
-    const pdfjsLib = window.pdfjsLib;
-    if (!pdfjsLib) {
-      setError("PDF-Bibliothek konnte nicht geladen werden.");
-      return;
-    }
+    let cancelled = false;
 
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    const load = async () => {
+      // Wait for pdfjsLib if not yet available (CDN may still be loading)
+      let attempts = 0;
+      while (!window.pdfjsLib && attempts < 20) {
+        await new Promise((r) => setTimeout(r, 100));
+        attempts++;
+      }
 
-    const url = URL.createObjectURL(file);
-    setIsLoading(true);
-    setError(null);
-    setCurrentPage(1);
-    setPageInputValue("1");
+      if (!window.pdfjsLib) {
+        setError("PDF-Bibliothek konnte nicht geladen werden.");
+        setIsLoading(false);
+        return;
+      }
 
-    const loadingTask = pdfjsLib.getDocument({ url });
-    loadingTask.promise
-      .then((pdf: any) => {
+      const pdfjsLib = window.pdfjsLib;
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+      // Revoke previous object URL
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+      }
+      const url = URL.createObjectURL(file);
+      objectUrlRef.current = url;
+
+      setIsLoading(true);
+      setError(null);
+      setCurrentPage(1);
+      setPageInputValue("1");
+
+      try {
+        const pdf = await pdfjsLib.getDocument({ url }).promise;
+        if (cancelled) return;
         pdfDocRef.current = pdf;
         setNumPages(pdf.numPages);
         setIsLoading(false);
-      })
-      .catch(() => {
+      } catch (err: any) {
+        if (cancelled) return;
+        console.error("PDF load error:", err);
         setError("PDF konnte nicht geladen werden.");
         setIsLoading(false);
-      })
-      .finally(() => {
-        URL.revokeObjectURL(url);
-      });
-
-    return () => {
-      loadingTask.destroy?.();
+      }
     };
+
+    load();
+    return () => { cancelled = true; };
   }, [file]);
 
-  // Render the current page to canvas whenever page or scale changes
+  // Render current page to canvas
   useEffect(() => {
     const pdf = pdfDocRef.current;
     if (!pdf || isLoading || error) return;
 
-    // Cancel any in-progress render
     if (renderTaskRef.current) {
       renderTaskRef.current.cancel();
       renderTaskRef.current = null;
     }
 
+    let cancelled = false;
+
     pdf.getPage(currentPage).then((page: any) => {
+      if (cancelled) return;
       const canvas = canvasRef.current;
       if (!canvas) return;
 
@@ -101,33 +117,32 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      const renderTask = page.render({ canvasContext: ctx, viewport });
-      renderTaskRef.current = renderTask;
-
-      renderTask.promise.catch((err: any) => {
-        // Ignore cancellation errors
-        if (err?.name !== "RenderingCancelledException") {
-          console.error("Render error:", err);
-        }
+      const task = page.render({ canvasContext: ctx, viewport });
+      renderTaskRef.current = task;
+      task.promise.catch((e: any) => {
+        if (e?.name !== "RenderingCancelledException") console.error(e);
       });
     });
+
+    return () => { cancelled = true; };
   }, [currentPage, scale, isLoading, error]);
 
-  const navigate = useCallback(
-    (delta: number) => {
-      const next = Math.min(numPages, Math.max(1, currentPage + delta));
-      setCurrentPage(next);
-      setPageInputValue(String(next));
-    },
-    [currentPage, numPages]
-  );
+  // Cleanup object URL on unmount
+  useEffect(() => {
+    return () => {
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    };
+  }, []);
+
+  const navigate = (delta: number) => {
+    const next = Math.min(numPages, Math.max(1, currentPage + delta));
+    setCurrentPage(next);
+    setPageInputValue(String(next));
+  };
 
   const zoomIn = () => setScale((s) => Math.min(MAX_SCALE, +(s + SCALE_STEP).toFixed(2)));
   const zoomOut = () => setScale((s) => Math.max(MIN_SCALE, +(s - SCALE_STEP).toFixed(2)));
   const resetZoom = () => setScale(1.0);
-
-  const handlePageInput = (e: React.ChangeEvent<HTMLInputElement>) =>
-    setPageInputValue(e.target.value);
 
   const commitPageInput = () => {
     const parsed = parseInt(pageInputValue, 10);
@@ -138,6 +153,13 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
     }
   };
 
+  const handleDownload = () => {
+    const a = document.createElement("a");
+    a.href = objectUrlRef.current!;
+    a.download = file.name;
+    a.click();
+  };
+
   return (
     <div className="flex flex-col h-screen bg-background overflow-hidden">
       {/* Toolbar */}
@@ -145,82 +167,63 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
         className="flex items-center gap-2 px-3 py-2 shrink-0 z-10 shadow-md"
         style={{ backgroundColor: "hsl(var(--toolbar))" }}
       >
-        {/* File name */}
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <FileText className="w-4 h-4 text-white/70 shrink-0" />
           <span className="text-sm text-white/90 font-medium truncate">{file.name}</span>
         </div>
 
-        {/* Page navigation */}
         {!isLoading && !error && (
-          <div className="flex items-center gap-1">
-            <button
-              className="toolbar-btn"
-              onClick={() => navigate(-1)}
-              disabled={currentPage <= 1}
-              aria-label="Vorherige Seite"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-            <div className="flex items-center gap-1 text-white/90 text-sm select-none">
-              <input
-                type="text"
-                inputMode="numeric"
-                value={pageInputValue}
-                onChange={handlePageInput}
-                onBlur={commitPageInput}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    commitPageInput();
-                    (e.target as HTMLInputElement).blur();
-                  }
-                }}
-                className="w-10 text-center bg-white/10 border border-white/20 rounded-md py-0.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-white/40"
-                aria-label="Seite"
-              />
-              <span className="text-white/60">/ {numPages}</span>
+          <>
+            {/* Page nav */}
+            <div className="flex items-center gap-1">
+              <button className="toolbar-btn" onClick={() => navigate(-1)} disabled={currentPage <= 1} aria-label="Vorherige Seite">
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-1 text-white/90 text-sm select-none">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={pageInputValue}
+                  onChange={(e) => setPageInputValue(e.target.value)}
+                  onBlur={commitPageInput}
+                  onKeyDown={(e) => { if (e.key === "Enter") { commitPageInput(); (e.target as HTMLInputElement).blur(); } }}
+                  className="w-10 text-center bg-white/10 border border-white/20 rounded-md py-0.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-white/40"
+                  aria-label="Seite"
+                />
+                <span className="text-white/60">/ {numPages}</span>
+              </div>
+              <button className="toolbar-btn" onClick={() => navigate(1)} disabled={currentPage >= numPages} aria-label="Nächste Seite">
+                <ChevronRight className="w-5 h-5" />
+              </button>
             </div>
-            <button
-              className="toolbar-btn"
-              onClick={() => navigate(1)}
-              disabled={currentPage >= numPages}
-              aria-label="Nächste Seite"
-            >
-              <ChevronRight className="w-5 h-5" />
+
+            {/* Zoom */}
+            <div className="flex items-center gap-1">
+              <button className="toolbar-btn" onClick={zoomOut} disabled={scale <= MIN_SCALE} aria-label="Verkleinern">
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <button className="text-xs text-white/80 min-w-[44px] text-center hover:text-white transition-colors" onClick={resetZoom}>
+                {Math.round(scale * 100)}%
+              </button>
+              <button className="toolbar-btn" onClick={zoomIn} disabled={scale >= MAX_SCALE} aria-label="Vergrößern">
+                <ZoomIn className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Download */}
+            <button className="toolbar-btn" onClick={handleDownload} aria-label="Herunterladen">
+              <Download className="w-4 h-4" />
             </button>
-          </div>
+          </>
         )}
 
-        {/* Zoom */}
-        {!isLoading && !error && (
-          <div className="flex items-center gap-1">
-            <button className="toolbar-btn" onClick={zoomOut} disabled={scale <= MIN_SCALE} aria-label="Verkleinern">
-              <ZoomOut className="w-4 h-4" />
-            </button>
-            <button
-              className="text-xs text-white/80 min-w-[44px] text-center hover:text-white transition-colors"
-              onClick={resetZoom}
-              aria-label="Zoom zurücksetzen"
-            >
-              {Math.round(scale * 100)}%
-            </button>
-            <button className="toolbar-btn" onClick={zoomIn} disabled={scale >= MAX_SCALE} aria-label="Vergrößern">
-              <ZoomIn className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-
-        {/* Close */}
         <button className="toolbar-btn" onClick={onClose} aria-label="Schließen">
           <X className="w-5 h-5" />
         </button>
       </header>
 
-      {/* Canvas Area */}
-      <main
-        className="flex-1 overflow-auto"
-        style={{ backgroundColor: "hsl(var(--viewer-bg))" }}
-      >
+      {/* Canvas area */}
+      <main className="flex-1 overflow-auto" style={{ backgroundColor: "hsl(var(--viewer-bg))" }}>
         <div className="flex justify-center items-start py-6 px-4 min-h-full">
           {isLoading && (
             <div className="flex flex-col items-center justify-center mt-24 gap-3 text-muted-foreground">
@@ -230,13 +233,19 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
           )}
 
           {error && (
-            <div className="flex flex-col items-center justify-center mt-24 gap-2 text-destructive">
-              <p className="font-medium">{error}</p>
+            <div className="flex flex-col items-center justify-center mt-24 gap-3">
+              <p className="font-medium text-destructive">{error}</p>
               <p className="text-sm text-muted-foreground">Bitte versuche eine andere Datei.</p>
+              <button
+                onClick={onClose}
+                className="mt-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-medium rounded-lg"
+              >
+                Andere Datei öffnen
+              </button>
             </div>
           )}
 
-          {!error && (
+          {!isLoading && !error && (
             <div className="page-shadow rounded-sm overflow-hidden bg-card">
               <canvas ref={canvasRef} />
             </div>
@@ -247,22 +256,12 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
       {/* Mobile bottom bar */}
       {!isLoading && !error && (
         <nav className="sm:hidden flex items-center justify-between px-6 py-3 border-t border-border bg-card shrink-0">
-          <button
-            onClick={() => navigate(-1)}
-            disabled={currentPage <= 1}
-            className="flex items-center gap-1 text-sm font-medium text-primary disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors"
-          >
+          <button onClick={() => navigate(-1)} disabled={currentPage <= 1} className="flex items-center gap-1 text-sm font-medium text-primary disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors">
             <ChevronLeft className="w-4 h-4" />
             Zurück
           </button>
-          <span className="text-sm text-muted-foreground">
-            {currentPage} / {numPages}
-          </span>
-          <button
-            onClick={() => navigate(1)}
-            disabled={currentPage >= numPages}
-            className="flex items-center gap-1 text-sm font-medium text-primary disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors"
-          >
+          <span className="text-sm text-muted-foreground">{currentPage} / {numPages}</span>
+          <button onClick={() => navigate(1)} disabled={currentPage >= numPages} className="flex items-center gap-1 text-sm font-medium text-primary disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors">
             Weiter
             <ChevronRight className="w-4 h-4" />
           </button>
