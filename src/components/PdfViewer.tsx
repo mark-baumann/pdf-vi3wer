@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -8,6 +8,7 @@ import {
   FileText,
   Loader2,
   Download,
+  Maximize2,
 } from "lucide-react";
 
 interface PdfViewerProps {
@@ -15,11 +16,10 @@ interface PdfViewerProps {
   onClose: () => void;
 }
 
-const MIN_SCALE = 0.5;
-const MAX_SCALE = 3.0;
+const MIN_SCALE = 0.25;
+const MAX_SCALE = 4.0;
 const SCALE_STEP = 0.25;
 
-// Render PDF pages to canvas via pdf.js (loaded globally from CDN)
 declare global {
   interface Window { pdfjsLib: any; }
 }
@@ -31,18 +31,21 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pageInputValue, setPageInputValue] = useState("1");
+  const [isFitMode, setIsFitMode] = useState(true); // Start in fit-width mode
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const pdfDocRef = useRef<any>(null);
   const renderTaskRef = useRef<any>(null);
   const objectUrlRef = useRef<string | null>(null);
+  const pageRef = useRef<any>(null); // cached current page object
+  const fitScaleRef = useRef<number>(1.0); // scale needed to fit width
 
   // Load PDF document
   useEffect(() => {
     let cancelled = false;
 
     const load = async () => {
-      // Wait for pdfjsLib if not yet available (CDN may still be loading)
       let attempts = 0;
       while (!window.pdfjsLib && attempts < 20) {
         await new Promise((r) => setTimeout(r, 100));
@@ -59,10 +62,7 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
       pdfjsLib.GlobalWorkerOptions.workerSrc =
         "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
-      // Revoke previous object URL
-      if (objectUrlRef.current) {
-        URL.revokeObjectURL(objectUrlRef.current);
-      }
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
       const url = URL.createObjectURL(file);
       objectUrlRef.current = url;
 
@@ -70,6 +70,7 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
       setError(null);
       setCurrentPage(1);
       setPageInputValue("1");
+      setIsFitMode(true);
 
       try {
         const pdf = await pdfjsLib.getDocument({ url }).promise;
@@ -89,45 +90,98 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
     return () => { cancelled = true; };
   }, [file]);
 
-  // Render current page to canvas
-  useEffect(() => {
+  // Compute fit-width scale for a given page
+  const computeFitScale = useCallback((page: any): number => {
+    const container = containerRef.current;
+    if (!container) return 1;
+    const containerWidth = container.clientWidth - 32; // minus padding
+    const viewport = page.getViewport({ scale: 1 });
+    return Math.max(MIN_SCALE, Math.min(MAX_SCALE, containerWidth / viewport.width));
+  }, []);
+
+  // Render current page
+  const renderPage = useCallback(async (pageNum: number, renderScale: number) => {
     const pdf = pdfDocRef.current;
-    if (!pdf || isLoading || error) return;
+    if (!pdf) return;
 
     if (renderTaskRef.current) {
       renderTaskRef.current.cancel();
       renderTaskRef.current = null;
     }
 
-    let cancelled = false;
+    let page: any;
+    try {
+      page = await pdf.getPage(pageNum);
+    } catch {
+      return;
+    }
+    pageRef.current = page;
 
-    pdf.getPage(currentPage).then((page: any) => {
-      if (cancelled) return;
-      const canvas = canvasRef.current;
-      if (!canvas) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-      const dpr = window.devicePixelRatio || 1;
-      const viewport = page.getViewport({ scale: scale * dpr });
+    const dpr = window.devicePixelRatio || 1;
+    const viewport = page.getViewport({ scale: renderScale * dpr });
 
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      canvas.style.width = `${viewport.width / dpr}px`;
-      canvas.style.height = `${viewport.height / dpr}px`;
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    canvas.style.width = `${viewport.width / dpr}px`;
+    canvas.style.height = `${viewport.height / dpr}px`;
 
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-      const task = page.render({ canvasContext: ctx, viewport });
-      renderTaskRef.current = task;
-      task.promise.catch((e: any) => {
-        if (e?.name !== "RenderingCancelledException") console.error(e);
-      });
+    const task = page.render({ canvasContext: ctx, viewport });
+    renderTaskRef.current = task;
+    try {
+      await task.promise;
+    } catch (e: any) {
+      if (e?.name !== "RenderingCancelledException") console.error(e);
+    }
+  }, []);
+
+  // Effect: render when page/scale/loading changes
+  useEffect(() => {
+    if (isLoading || error) return;
+
+    const doRender = async () => {
+      const pdf = pdfDocRef.current;
+      if (!pdf) return;
+
+      // Get page to compute fit scale if needed
+      const page = await pdf.getPage(currentPage).catch(() => null);
+      if (!page) return;
+      pageRef.current = page;
+
+      let activeScale = scale;
+      if (isFitMode) {
+        const fit = computeFitScale(page);
+        fitScaleRef.current = fit;
+        activeScale = fit;
+        // Sync scale state silently (won't re-trigger this effect since isFitMode is true)
+        setScale(fit);
+      }
+      renderPage(currentPage, activeScale);
+    };
+
+    doRender();
+  }, [currentPage, scale, isLoading, error, isFitMode]); // eslint-disable-line
+
+  // Re-render on resize when in fit mode
+  useEffect(() => {
+    if (!isFitMode) return;
+    const observer = new ResizeObserver(() => {
+      const page = pageRef.current;
+      if (!page) return;
+      const fit = computeFitScale(page);
+      fitScaleRef.current = fit;
+      setScale(fit); // triggers re-render via the effect above
     });
+    if (containerRef.current) observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [isFitMode, computeFitScale]);
 
-    return () => { cancelled = true; };
-  }, [currentPage, scale, isLoading, error]);
-
-  // Cleanup object URL on unmount
+  // Cleanup
   useEffect(() => {
     return () => {
       if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
@@ -140,9 +194,18 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
     setPageInputValue(String(next));
   };
 
-  const zoomIn = () => setScale((s) => Math.min(MAX_SCALE, +(s + SCALE_STEP).toFixed(2)));
-  const zoomOut = () => setScale((s) => Math.max(MIN_SCALE, +(s - SCALE_STEP).toFixed(2)));
-  const resetZoom = () => setScale(1.0);
+  const zoomIn = () => {
+    setIsFitMode(false);
+    setScale((s) => Math.min(MAX_SCALE, +(s + SCALE_STEP).toFixed(2)));
+  };
+  const zoomOut = () => {
+    setIsFitMode(false);
+    setScale((s) => Math.max(MIN_SCALE, +(s - SCALE_STEP).toFixed(2)));
+  };
+  const fitWidth = () => {
+    setIsFitMode(true);
+    // trigger re-render by flipping isFitMode; scale will be recomputed in effect
+  };
 
   const commitPageInput = () => {
     const parsed = parseInt(pageInputValue, 10);
@@ -167,19 +230,23 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
         className="flex items-center gap-2 px-3 py-2 shrink-0 z-10 shadow-md"
         style={{ backgroundColor: "hsl(var(--toolbar))" }}
       >
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <FileText className="w-4 h-4 text-white/70 shrink-0" />
+        {/* Back + filename */}
+        <button className="toolbar-btn" onClick={onClose} aria-label="Zurück">
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          <FileText className="w-4 h-4 text-white/60 shrink-0" />
           <span className="text-sm text-white/90 font-medium truncate">{file.name}</span>
         </div>
 
         {!isLoading && !error && (
           <>
             {/* Page nav */}
-            <div className="flex items-center gap-1">
+            <div className="hidden sm:flex items-center gap-1">
               <button className="toolbar-btn" onClick={() => navigate(-1)} disabled={currentPage <= 1} aria-label="Vorherige Seite">
                 <ChevronLeft className="w-5 h-5" />
               </button>
-              <div className="flex items-center gap-1 text-white/90 text-sm select-none">
+              <div className="flex items-center gap-1 text-white/90 text-sm">
                 <input
                   type="text"
                   inputMode="numeric"
@@ -197,18 +264,27 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
               </button>
             </div>
 
-            {/* Zoom */}
+            {/* Zoom controls */}
             <div className="flex items-center gap-1">
               <button className="toolbar-btn" onClick={zoomOut} disabled={scale <= MIN_SCALE} aria-label="Verkleinern">
                 <ZoomOut className="w-4 h-4" />
               </button>
-              <button className="text-xs text-white/80 min-w-[44px] text-center hover:text-white transition-colors" onClick={resetZoom}>
-                {Math.round(scale * 100)}%
+              <button
+                className={`text-xs min-w-[44px] text-center transition-colors px-1 py-0.5 rounded ${isFitMode ? "text-primary bg-white/20" : "text-white/80 hover:text-white"}`}
+                onClick={fitWidth}
+                title="An Breite anpassen"
+              >
+                {isFitMode ? "Fit" : `${Math.round(scale * 100)}%`}
               </button>
               <button className="toolbar-btn" onClick={zoomIn} disabled={scale >= MAX_SCALE} aria-label="Vergrößern">
                 <ZoomIn className="w-4 h-4" />
               </button>
             </div>
+
+            {/* Fit-width shortcut */}
+            <button className="toolbar-btn hidden sm:flex" onClick={fitWidth} aria-label="An Breite anpassen" title="An Breite anpassen">
+              <Maximize2 className="w-4 h-4" />
+            </button>
 
             {/* Download */}
             <button className="toolbar-btn" onClick={handleDownload} aria-label="Herunterladen">
@@ -216,15 +292,15 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
             </button>
           </>
         )}
-
-        <button className="toolbar-btn" onClick={onClose} aria-label="Schließen">
-          <X className="w-5 h-5" />
-        </button>
       </header>
 
       {/* Canvas area */}
-      <main className="flex-1 overflow-auto" style={{ backgroundColor: "hsl(var(--viewer-bg))" }}>
-        <div className="flex justify-center items-start py-6 px-4 min-h-full">
+      <main
+        ref={containerRef}
+        className="flex-1 overflow-auto"
+        style={{ backgroundColor: "hsl(var(--viewer-bg))" }}
+      >
+        <div className="flex justify-center items-start py-4 px-4 min-h-full">
           {isLoading && (
             <div className="flex flex-col items-center justify-center mt-24 gap-3 text-muted-foreground">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -240,7 +316,7 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
                 onClick={onClose}
                 className="mt-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-medium rounded-lg"
               >
-                Andere Datei öffnen
+                Zurück zum Bücherregal
               </button>
             </div>
           )}
@@ -255,13 +331,26 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
 
       {/* Mobile bottom bar */}
       {!isLoading && !error && (
-        <nav className="sm:hidden flex items-center justify-between px-6 py-3 border-t border-border bg-card shrink-0">
-          <button onClick={() => navigate(-1)} disabled={currentPage <= 1} className="flex items-center gap-1 text-sm font-medium text-primary disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors">
+        <nav className="flex sm:hidden items-center justify-between px-6 py-3 border-t border-border bg-card shrink-0">
+          <button
+            onClick={() => navigate(-1)}
+            disabled={currentPage <= 1}
+            className="flex items-center gap-1 text-sm font-medium text-primary disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors"
+          >
             <ChevronLeft className="w-4 h-4" />
             Zurück
           </button>
-          <span className="text-sm text-muted-foreground">{currentPage} / {numPages}</span>
-          <button onClick={() => navigate(1)} disabled={currentPage >= numPages} className="flex items-center gap-1 text-sm font-medium text-primary disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors">
+          <button
+            className="text-sm text-muted-foreground font-medium px-3 py-1 rounded-lg border border-border active:bg-secondary"
+            onTouchStart={(e) => e.currentTarget.focus()}
+          >
+            {currentPage} / {numPages}
+          </button>
+          <button
+            onClick={() => navigate(1)}
+            disabled={currentPage >= numPages}
+            className="flex items-center gap-1 text-sm font-medium text-primary disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors"
+          >
             Weiter
             <ChevronRight className="w-4 h-4" />
           </button>
