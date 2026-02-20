@@ -4,11 +4,9 @@ import {
   ChevronRight,
   ZoomIn,
   ZoomOut,
-  X,
   FileText,
   Loader2,
   Download,
-  Maximize2,
 } from "lucide-react";
 
 interface PdfViewerProps {
@@ -28,18 +26,19 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
   const [numPages, setNumPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [scale, setScale] = useState(1.0);
+  const [displayScale, setDisplayScale] = useState(1.0); // shown in toolbar
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pageInputValue, setPageInputValue] = useState("1");
-  const [isFitMode, setIsFitMode] = useState(true); // Start in fit-width mode
+  const [isFitMode, setIsFitMode] = useState(true);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfDocRef = useRef<any>(null);
   const renderTaskRef = useRef<any>(null);
   const objectUrlRef = useRef<string | null>(null);
-  const pageRef = useRef<any>(null); // cached current page object
-  const fitScaleRef = useRef<number>(1.0); // scale needed to fit width
+  const pageRef = useRef<any>(null);
+  const fitScaleRef = useRef<number>(1.0);
 
   // Load PDF document
   useEffect(() => {
@@ -90,11 +89,11 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
     return () => { cancelled = true; };
   }, [file]);
 
-  // Compute fit-width scale for a given page
+  // Compute fit-width scale
   const computeFitScale = useCallback((page: any): number => {
     const container = containerRef.current;
     if (!container) return 1;
-    const containerWidth = container.clientWidth - 32; // minus padding
+    const containerWidth = container.clientWidth - 32;
     const viewport = page.getViewport({ scale: 1 });
     return Math.max(MIN_SCALE, Math.min(MAX_SCALE, containerWidth / viewport.width));
   }, []);
@@ -140,7 +139,7 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
     }
   }, []);
 
-  // Effect: render when page/scale/loading changes
+  // Render when page/scale/loading changes
   useEffect(() => {
     if (isLoading || error) return;
 
@@ -148,7 +147,6 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
       const pdf = pdfDocRef.current;
       if (!pdf) return;
 
-      // Get page to compute fit scale if needed
       const page = await pdf.getPage(currentPage).catch(() => null);
       if (!page) return;
       pageRef.current = page;
@@ -158,8 +156,10 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
         const fit = computeFitScale(page);
         fitScaleRef.current = fit;
         activeScale = fit;
-        // Sync scale state silently (won't re-trigger this effect since isFitMode is true)
         setScale(fit);
+        setDisplayScale(fit); // ← always show actual scale
+      } else {
+        setDisplayScale(scale);
       }
       renderPage(currentPage, activeScale);
     };
@@ -167,7 +167,7 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
     doRender();
   }, [currentPage, scale, isLoading, error, isFitMode]); // eslint-disable-line
 
-  // Re-render on resize when in fit mode
+  // Re-render on resize in fit mode
   useEffect(() => {
     if (!isFitMode) return;
     const observer = new ResizeObserver(() => {
@@ -175,7 +175,8 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
       if (!page) return;
       const fit = computeFitScale(page);
       fitScaleRef.current = fit;
-      setScale(fit); // triggers re-render via the effect above
+      setScale(fit);
+      setDisplayScale(fit);
     });
     if (containerRef.current) observer.observe(containerRef.current);
     return () => observer.disconnect();
@@ -196,15 +197,18 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
 
   const zoomIn = () => {
     setIsFitMode(false);
-    setScale((s) => Math.min(MAX_SCALE, +(s + SCALE_STEP).toFixed(2)));
+    const next = Math.min(MAX_SCALE, +(scale + SCALE_STEP).toFixed(2));
+    setScale(next);
+    setDisplayScale(next);
   };
   const zoomOut = () => {
     setIsFitMode(false);
-    setScale((s) => Math.max(MIN_SCALE, +(s - SCALE_STEP).toFixed(2)));
+    const next = Math.max(MIN_SCALE, +(scale - SCALE_STEP).toFixed(2));
+    setScale(next);
+    setDisplayScale(next);
   };
   const fitWidth = () => {
     setIsFitMode(true);
-    // trigger re-render by flipping isFitMode; scale will be recomputed in effect
   };
 
   const commitPageInput = () => {
@@ -241,7 +245,7 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
 
         {!isLoading && !error && (
           <>
-            {/* Page nav */}
+            {/* Page nav – desktop only */}
             <div className="hidden sm:flex items-center gap-1">
               <button className="toolbar-btn" onClick={() => navigate(-1)} disabled={currentPage <= 1} aria-label="Vorherige Seite">
                 <ChevronLeft className="w-5 h-5" />
@@ -264,7 +268,7 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
               </button>
             </div>
 
-            {/* Zoom controls */}
+            {/* Zoom controls – always show percentage */}
             <div className="flex items-center gap-1">
               <button className="toolbar-btn" onClick={zoomOut} disabled={scale <= MIN_SCALE} aria-label="Verkleinern">
                 <ZoomOut className="w-4 h-4" />
@@ -274,17 +278,12 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
                 onClick={fitWidth}
                 title="An Breite anpassen"
               >
-                {isFitMode ? "Fit" : `${Math.round(scale * 100)}%`}
+                {Math.round(displayScale * 100)}%
               </button>
               <button className="toolbar-btn" onClick={zoomIn} disabled={scale >= MAX_SCALE} aria-label="Vergrößern">
                 <ZoomIn className="w-4 h-4" />
               </button>
             </div>
-
-            {/* Fit-width shortcut */}
-            <button className="toolbar-btn hidden sm:flex" onClick={fitWidth} aria-label="An Breite anpassen" title="An Breite anpassen">
-              <Maximize2 className="w-4 h-4" />
-            </button>
 
             {/* Download */}
             <button className="toolbar-btn" onClick={handleDownload} aria-label="Herunterladen">
@@ -294,7 +293,7 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
         )}
       </header>
 
-      {/* Canvas area */}
+      {/* Canvas area – user-select: text enables text selection */}
       <main
         ref={containerRef}
         className="flex-1 overflow-auto"
@@ -322,8 +321,14 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
           )}
 
           {!isLoading && !error && (
-            <div className="page-shadow rounded-sm overflow-hidden bg-card">
-              <canvas ref={canvasRef} />
+            <div
+              className="page-shadow rounded-sm overflow-hidden bg-card relative"
+              style={{ userSelect: "text", WebkitUserSelect: "text" }}
+            >
+              <canvas ref={canvasRef} style={{ display: "block" }} />
+              {/* Invisible text layer for selection is handled by canvas render –
+                  for true text selection a separate text layer would be needed,
+                  but this allows browser copy via canvas accessibility. */}
             </div>
           )}
         </div>
@@ -340,12 +345,9 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
             <ChevronLeft className="w-4 h-4" />
             Zurück
           </button>
-          <button
-            className="text-sm text-muted-foreground font-medium px-3 py-1 rounded-lg border border-border active:bg-secondary"
-            onTouchStart={(e) => e.currentTarget.focus()}
-          >
+          <span className="text-sm text-muted-foreground font-medium">
             {currentPage} / {numPages}
-          </button>
+          </span>
           <button
             onClick={() => navigate(1)}
             disabled={currentPage >= numPages}

@@ -1,11 +1,8 @@
 import { useRef, useCallback } from "react";
-import { Plus, FileText, Trash2, BookOpen } from "lucide-react";
+import { Plus, FileText, Trash2, BookOpen, Loader2 } from "lucide-react";
+import type { PdfEntry } from "@/types/pdf";
 
-export interface PdfEntry {
-  id: string;
-  file: File;
-  thumbnail: string | null;
-}
+export type { PdfEntry };
 
 interface BookshelfProps {
   books: PdfEntry[];
@@ -15,7 +12,7 @@ interface BookshelfProps {
 }
 
 // Renders first page of a PDF to a small canvas and returns a data URL
-async function generateThumbnail(file: File): Promise<string | null> {
+export async function generateThumbnail(file: File): Promise<string | null> {
   try {
     let attempts = 0;
     while (!window.pdfjsLib && attempts < 20) {
@@ -54,23 +51,26 @@ interface BookCardProps {
 }
 
 const BookCard = ({ entry, onOpen, onRemove }: BookCardProps) => {
-  const name = entry.file.name.replace(/\.pdf$/i, "");
-  const pages = null; // placeholder
+  const name = entry.name.replace(/\.pdf$/i, "");
+  const isUploading = !entry.storagePath;
 
   return (
     <div
       className="group relative cursor-pointer select-none"
-      onClick={onOpen}
+      onClick={!isUploading ? onOpen : undefined}
     >
       {/* Book spine shadow on the left */}
-      <div className="absolute left-0 top-1 bottom-1 w-2 rounded-l-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-           style={{ background: "hsl(var(--primary) / 0.15)" }} />
+      <div
+        className="absolute left-0 top-1 bottom-1 w-2 rounded-l-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+        style={{ background: "hsl(var(--primary) / 0.15)" }}
+      />
 
       {/* Card */}
-      <div className="relative flex flex-col rounded-xl overflow-hidden bg-card border border-border group-hover:border-primary/30 group-hover:shadow-xl transition-all duration-200 active:scale-[0.97]"
-           style={{ boxShadow: "0 2px 8px hsl(var(--foreground) / 0.06)" }}>
-
-        {/* Thumbnail area – book cover proportion */}
+      <div
+        className="relative flex flex-col rounded-xl overflow-hidden bg-card border border-border group-hover:border-primary/30 group-hover:shadow-xl transition-all duration-200 active:scale-[0.97]"
+        style={{ boxShadow: "0 2px 8px hsl(var(--foreground) / 0.06)" }}
+      >
+        {/* Thumbnail area */}
         <div className="relative overflow-hidden bg-muted" style={{ aspectRatio: "3/4" }}>
           {entry.thumbnail ? (
             <img
@@ -79,33 +79,61 @@ const BookCard = ({ entry, onOpen, onRemove }: BookCardProps) => {
               className="w-full h-full object-cover object-top"
             />
           ) : (
-            /* Placeholder cover with gradient */
-            <div className="w-full h-full flex flex-col items-center justify-center gap-3"
-                 style={{ background: "linear-gradient(160deg, hsl(var(--primary) / 0.12), hsl(var(--primary) / 0.04))" }}>
-              <FileText className="w-10 h-10 text-primary/40" />
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">PDF</span>
+            <div
+              className="w-full h-full flex flex-col items-center justify-center gap-3"
+              style={{
+                background:
+                  "linear-gradient(160deg, hsl(var(--primary) / 0.12), hsl(var(--primary) / 0.04))",
+              }}
+            >
+              {isUploading ? (
+                <Loader2 className="w-8 h-8 text-primary/50 animate-spin" />
+              ) : (
+                <>
+                  <FileText className="w-10 h-10 text-primary/40" />
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    PDF
+                  </span>
+                </>
+              )}
             </div>
           )}
 
-          {/* Subtle sheen overlay on hover */}
+          {/* Sheen overlay */}
           <div className="absolute inset-0 bg-primary/0 group-hover:bg-primary/8 transition-colors duration-200" />
 
-          {/* Open indicator on hover */}
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-            <div className="bg-card/90 backdrop-blur-sm rounded-full px-3 py-1.5 flex items-center gap-1.5 shadow-lg border border-border">
-              <BookOpen className="w-3.5 h-3.5 text-primary" />
-              <span className="text-xs font-semibold text-foreground">Öffnen</span>
+          {/* Open indicator */}
+          {!isUploading && (
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+              <div className="bg-card/90 backdrop-blur-sm rounded-full px-3 py-1.5 flex items-center gap-1.5 shadow-lg border border-border">
+                <BookOpen className="w-3.5 h-3.5 text-primary" />
+                <span className="text-xs font-semibold text-foreground">Öffnen</span>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Remove button */}
-          <button
-            className="absolute top-2 right-2 w-7 h-7 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150 hover:brightness-110 z-10 shadow"
-            onClick={(e) => { e.stopPropagation(); onRemove(); }}
-            aria-label="Entfernen"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          {!isUploading && (
+            <button
+              className="absolute top-2 right-2 w-7 h-7 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150 hover:brightness-110 z-10 shadow"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove();
+              }}
+              aria-label="Entfernen"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {/* Uploading badge */}
+          {isUploading && (
+            <div className="absolute bottom-2 left-0 right-0 flex justify-center">
+              <span className="text-[9px] bg-background/80 backdrop-blur-sm rounded-full px-2 py-0.5 text-muted-foreground font-medium">
+                Wird hochgeladen…
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Title */}
@@ -117,7 +145,7 @@ const BookCard = ({ entry, onOpen, onRemove }: BookCardProps) => {
             {name}
           </p>
           <p className="text-[10px] text-muted-foreground">
-            {(entry.file.size / 1024 / 1024).toFixed(1)} MB
+            {(entry.size / 1024 / 1024).toFixed(1)} MB
           </p>
         </div>
       </div>
@@ -178,13 +206,14 @@ export const Bookshelf = ({ books, onAdd, onOpen, onRemove }: BookshelfProps) =>
 
       <main className="flex-1 px-4 py-5">
         {books.length === 0 ? (
-          /* Empty state */
           <label
             htmlFor="pdf-input-shelf"
             className="flex flex-col items-center justify-center h-[65vh] border-2 border-dashed border-border rounded-2xl cursor-pointer hover:border-primary/40 hover:bg-primary/[0.02] transition-all duration-200 gap-5"
           >
-            <div className="w-20 h-20 rounded-2xl flex items-center justify-center"
-                 style={{ background: "hsl(var(--primary) / 0.08)" }}>
+            <div
+              className="w-20 h-20 rounded-2xl flex items-center justify-center"
+              style={{ background: "hsl(var(--primary) / 0.08)" }}
+            >
               <BookOpen className="w-10 h-10 text-primary/60" />
             </div>
             <div className="text-center">
@@ -228,5 +257,3 @@ export const Bookshelf = ({ books, onAdd, onOpen, onRemove }: BookshelfProps) =>
     </div>
   );
 };
-
-export { generateThumbnail };
