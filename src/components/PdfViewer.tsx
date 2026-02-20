@@ -1,23 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   ChevronLeft,
-  ChevronRight,
   ZoomIn,
   ZoomOut,
   Loader2,
-  Download,
-  Menu,
-  X,
-  ArrowLeftRight,
-  ArrowUpDown,
 } from "lucide-react";
 
 interface PdfViewerProps {
   file: File;
   onClose: () => void;
 }
-
-type ScrollMode = "vertical" | "horizontal";
 
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 4.0;
@@ -36,10 +28,7 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
   const [displayScale, setDisplayScale] = useState(1.0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [pageInputValue, setPageInputValue] = useState("1");
   const [isFitMode, setIsFitMode] = useState(true);
-  const [scrollMode, setScrollMode] = useState<ScrollMode>("vertical");
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfDocRef = useRef<any>(null);
@@ -76,7 +65,6 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
       setIsLoading(true);
       setError(null);
       setCurrentPage(1);
-      setPageInputValue("1");
       setScale(1);
       setDisplayScale(1);
       setIsFitMode(true);
@@ -107,21 +95,13 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
       if (!container) return 1;
 
       const viewport = page.getViewport({ scale: 1 });
-      if (scrollMode === "horizontal") {
-        const containerHeight = Math.max(container.clientHeight - 48, 200);
-        return Math.max(
-          MIN_SCALE,
-          Math.min(MAX_SCALE, containerHeight / viewport.height)
-        );
-      }
-
-      const containerWidth = Math.max(container.clientWidth - 56, 200);
+      const containerHeight = Math.max(container.clientHeight - 48, 200);
       return Math.max(
         MIN_SCALE,
-        Math.min(MAX_SCALE, containerWidth / viewport.width)
+        Math.min(MAX_SCALE, containerHeight / viewport.height)
       );
     },
-    [scrollMode]
+    []
   );
 
   const renderSinglePage = useCallback(
@@ -235,24 +215,6 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
     };
   }, []);
 
-  const scrollToPage = useCallback((page: number) => {
-    const element = pageRefs.current.get(page);
-    if (!element) return;
-
-    element.scrollIntoView({
-      behavior: "smooth",
-      block: "center",
-      inline: "center",
-    });
-  }, []);
-
-  const navigate = (delta: number) => {
-    const next = Math.min(numPages, Math.max(1, currentPage + delta));
-    setCurrentPage(next);
-    setPageInputValue(String(next));
-    scrollToPage(next);
-  };
-
   const zoomIn = () => {
     setIsFitMode(false);
     const next = Math.min(MAX_SCALE, +(scale + SCALE_STEP).toFixed(2));
@@ -267,42 +229,12 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
     setDisplayScale(next);
   };
 
-  const fitViewport = () => {
-    setIsFitMode(true);
-  };
-
-  const commitPageInput = () => {
-    const parsed = parseInt(pageInputValue, 10);
-    if (!isNaN(parsed) && parsed >= 1 && parsed <= numPages) {
-      setCurrentPage(parsed);
-      scrollToPage(parsed);
-    } else {
-      setPageInputValue(String(currentPage));
-    }
-  };
-
-  const handleDownload = () => {
-    if (!objectUrlRef.current) return;
-    const a = document.createElement("a");
-    a.href = objectUrlRef.current;
-    a.download = file.name;
-    a.click();
-  };
-
-  const toggleScrollMode = () => {
-    setScrollMode((prev) => (prev === "vertical" ? "horizontal" : "vertical"));
-    setIsFitMode(true);
-  };
-
   const syncCurrentPageFromScroll = useCallback(() => {
     const container = containerRef.current;
     if (!container || numPages === 0) return;
 
     const containerRect = container.getBoundingClientRect();
-    const referencePoint =
-      scrollMode === "horizontal"
-        ? containerRect.left + containerRect.width / 2
-        : containerRect.top + containerRect.height / 2;
+    const referencePoint = containerRect.left + containerRect.width / 2;
 
     let nearestPage = currentPage;
     let nearestDistance = Number.POSITIVE_INFINITY;
@@ -312,10 +244,7 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
       if (!pageElement) continue;
 
       const pageRect = pageElement.getBoundingClientRect();
-      const center =
-        scrollMode === "horizontal"
-          ? pageRect.left + pageRect.width / 2
-          : pageRect.top + pageRect.height / 2;
+      const center = pageRect.left + pageRect.width / 2;
 
       const distance = Math.abs(center - referencePoint);
       if (distance < nearestDistance) {
@@ -326,100 +255,48 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
 
     if (nearestPage !== currentPage) {
       setCurrentPage(nearestPage);
-      setPageInputValue(String(nearestPage));
     }
-  }, [currentPage, numPages, scrollMode]);
+  }, [currentPage, numPages]);
+
+  const buttonClass =
+    "flex h-9 w-9 items-center justify-center rounded-md bg-black text-white transition-colors hover:bg-black/85 disabled:cursor-not-allowed disabled:opacity-45";
 
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-background">
-      <header className="z-10 flex items-center justify-between border-b border-border bg-card/90 px-4 py-2 backdrop-blur-sm">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-foreground">{file.name}</p>
+      <header className="z-10 flex items-center justify-between border-b border-border bg-card px-3 py-2">
+        <div className="flex items-center gap-2">
+          <button className={buttonClass} onClick={onClose} aria-label="Zurück">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
           {!isLoading && !error && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm font-medium text-foreground">
               Seite {currentPage} von {numPages}
             </p>
           )}
         </div>
-        <button className="toolbar-btn" onClick={() => setIsMenuOpen((prev) => !prev)} aria-label="Menü öffnen">
-          {isMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
-        </button>
-      </header>
-
-      {isMenuOpen && !isLoading && !error && (
-        <div className="absolute right-3 top-14 z-20 w-[min(92vw,360px)] rounded-xl border border-border bg-card p-3 shadow-2xl">
-          <div className="grid grid-cols-2 gap-2">
-            <button className="flex h-9 items-center justify-center gap-1 rounded-lg border border-border bg-background px-2 text-sm hover:bg-muted" onClick={onClose}>
-              <ChevronLeft className="h-4 w-4" /> Zurück
-            </button>
-            <button className="flex h-9 items-center justify-center gap-1 rounded-lg border border-border bg-background px-2 text-sm hover:bg-muted" onClick={handleDownload}>
-              <Download className="h-4 w-4" /> Download
-            </button>
-            <button className="flex h-9 items-center justify-center gap-1 rounded-lg border border-border bg-background px-2 text-sm hover:bg-muted" onClick={toggleScrollMode}>
-              {scrollMode === "vertical" ? <ArrowLeftRight className="h-4 w-4" /> : <ArrowUpDown className="h-4 w-4" />}
-              {scrollMode === "vertical" ? "Horizontal" : "Vertikal"}
-            </button>
-            <button className="flex h-9 items-center justify-center gap-1 rounded-lg border border-border bg-background px-2 text-sm hover:bg-muted" onClick={fitViewport}>
-              Fit ({Math.round(displayScale * 100)}%)
-            </button>
-          </div>
-
-          <div className="mt-3 flex items-center justify-between gap-2">
-            <button className="toolbar-btn" onClick={() => navigate(-1)} disabled={currentPage <= 1}>
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <div className="flex items-center gap-1 text-sm text-muted-foreground">
-              <input
-                type="text"
-                inputMode="numeric"
-                value={pageInputValue}
-                onChange={(e) => setPageInputValue(e.target.value)}
-                onBlur={commitPageInput}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    commitPageInput();
-                    (e.target as HTMLInputElement).blur();
-                  }
-                }}
-                className="w-12 rounded-md border border-border bg-background py-0.5 text-center text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
-              />
-              <span>/ {numPages}</span>
-            </div>
-            <button className="toolbar-btn" onClick={() => navigate(1)} disabled={currentPage >= numPages}>
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-
-          <div className="mt-3 flex items-center justify-center gap-2">
-            <button className="toolbar-btn" onClick={zoomOut} disabled={scale <= MIN_SCALE}>
-              <ZoomOut className="h-4 w-4" />
-            </button>
-            <span className="min-w-14 text-center text-xs text-muted-foreground">
-              {Math.round(displayScale * 100)}%
-            </span>
-            <button className="toolbar-btn" onClick={zoomIn} disabled={scale >= MAX_SCALE}>
-              <ZoomIn className="h-4 w-4" />
-            </button>
-          </div>
+        <div className="flex items-center gap-2">
+          <button className={buttonClass} onClick={zoomOut} disabled={scale <= MIN_SCALE} aria-label="Zoom raus">
+            <ZoomOut className="h-4 w-4" />
+          </button>
+          <span className="min-w-14 text-center text-xs text-muted-foreground" aria-label="Zoomstufe">
+            {Math.round(displayScale * 100)}%
+          </span>
+          <button className={buttonClass} onClick={zoomIn} disabled={scale >= MAX_SCALE} aria-label="Zoom rein">
+            <ZoomIn className="h-4 w-4" />
+          </button>
         </div>
-      )}
+      </header>
 
       <main
         ref={containerRef}
         className="flex-1 overflow-auto"
         style={{
           backgroundColor: "hsl(var(--viewer-bg))",
-          touchAction: scrollMode === "horizontal" ? "pan-x" : "pan-y",
+          touchAction: "pan-x",
         }}
         onScroll={syncCurrentPageFromScroll}
       >
-        <div
-          className={
-            scrollMode === "horizontal"
-              ? "flex min-h-full w-max items-center gap-6 px-6 py-4"
-              : "flex min-h-full flex-col items-center gap-6 px-4 py-6"
-          }
-        >
+        <div className="flex min-h-full w-max items-center gap-6 px-6 py-4">
           {isLoading && (
             <div className="mt-24 flex flex-col items-center justify-center gap-3 text-muted-foreground">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
