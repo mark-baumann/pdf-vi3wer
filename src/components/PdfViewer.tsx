@@ -13,7 +13,9 @@ interface PdfViewerProps {
 
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 4.0;
-const SCALE_STEP = 0.25;
+const SCALE_STEP = 0.1;
+const ZOOM_COOKIE_NAME = "pdfViewerZoom";
+const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
 declare global {
   interface Window {
@@ -37,6 +39,28 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
   const fitScaleRef = useRef<number>(1.0);
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  const readZoomFromCookie = useCallback((): number | null => {
+    const cookie = document.cookie
+      .split(";")
+      .map((entry) => entry.trim())
+      .find((entry) => entry.startsWith(`${ZOOM_COOKIE_NAME}=`));
+
+    if (!cookie) return null;
+
+    const rawValue = cookie.split("=")[1];
+    const parsed = Number.parseFloat(decodeURIComponent(rawValue));
+    if (Number.isNaN(parsed)) return null;
+
+    const normalized = Math.round(parsed * 10) / 10;
+    return Math.max(MIN_SCALE, Math.min(MAX_SCALE, normalized));
+  }, []);
+
+  const writeZoomToCookie = useCallback((nextScale: number) => {
+    document.cookie = `${ZOOM_COOKIE_NAME}=${encodeURIComponent(
+      nextScale.toFixed(1)
+    )};path=/;max-age=${COOKIE_MAX_AGE_SECONDS};SameSite=Lax`;
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,9 +89,17 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
       setIsLoading(true);
       setError(null);
       setCurrentPage(1);
-      setScale(1);
-      setDisplayScale(1);
-      setIsFitMode(true);
+
+      const savedScale = readZoomFromCookie();
+      if (savedScale !== null) {
+        setScale(savedScale);
+        setDisplayScale(savedScale);
+        setIsFitMode(false);
+      } else {
+        setScale(1);
+        setDisplayScale(1);
+        setIsFitMode(true);
+      }
 
       try {
         const pdf = await pdfjsLib.getDocument({ url }).promise;
@@ -87,7 +119,7 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
     return () => {
       cancelled = true;
     };
-  }, [file]);
+  }, [file, readZoomFromCookie]);
 
   const computeFitScale = useCallback(
     (page: any): number => {
@@ -95,10 +127,15 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
       if (!container) return 1;
 
       const viewport = page.getViewport({ scale: 1 });
+      const containerWidth = Math.max(container.clientWidth - 48, 200);
       const containerHeight = Math.max(container.clientHeight - 48, 200);
+
+      const widthFitScale = containerWidth / viewport.width;
+      const heightFitScale = containerHeight / viewport.height;
+
       return Math.max(
         MIN_SCALE,
-        Math.min(MAX_SCALE, containerHeight / viewport.height)
+        Math.min(MAX_SCALE, Math.min(widthFitScale, heightFitScale))
       );
     },
     []
@@ -217,16 +254,18 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
 
   const zoomIn = () => {
     setIsFitMode(false);
-    const next = Math.min(MAX_SCALE, +(scale + SCALE_STEP).toFixed(2));
+    const next = Math.min(MAX_SCALE, +(scale + SCALE_STEP).toFixed(1));
     setScale(next);
     setDisplayScale(next);
+    writeZoomToCookie(next);
   };
 
   const zoomOut = () => {
     setIsFitMode(false);
-    const next = Math.max(MIN_SCALE, +(scale - SCALE_STEP).toFixed(2));
+    const next = Math.max(MIN_SCALE, +(scale - SCALE_STEP).toFixed(1));
     setScale(next);
     setDisplayScale(next);
+    writeZoomToCookie(next);
   };
 
   const syncCurrentPageFromScroll = useCallback(() => {
@@ -289,10 +328,10 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
 
       <main
         ref={containerRef}
-        className="flex-1 overflow-auto"
+        className="flex-1 overflow-x-auto overflow-y-hidden"
         style={{
           backgroundColor: "hsl(var(--viewer-bg))",
-          touchAction: "pan-x",
+          touchAction: "pan-x pinch-zoom",
         }}
         onScroll={syncCurrentPageFromScroll}
       >
