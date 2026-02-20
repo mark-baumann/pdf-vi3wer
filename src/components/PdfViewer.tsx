@@ -127,16 +127,10 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
       if (!container) return 1;
 
       const viewport = page.getViewport({ scale: 1 });
-      const containerWidth = Math.max(container.clientWidth - 48, 200);
-      const containerHeight = Math.max(container.clientHeight - 48, 200);
-
+      const containerWidth = Math.max(container.clientWidth - 24, 200);
       const widthFitScale = containerWidth / viewport.width;
-      const heightFitScale = containerHeight / viewport.height;
 
-      return Math.max(
-        MIN_SCALE,
-        Math.min(MAX_SCALE, Math.min(widthFitScale, heightFitScale))
-      );
+      return Math.max(MIN_SCALE, Math.min(MAX_SCALE, widthFitScale));
     },
     []
   );
@@ -273,7 +267,7 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
     if (!container || numPages === 0) return;
 
     const containerRect = container.getBoundingClientRect();
-    const referencePoint = containerRect.left + containerRect.width / 2;
+    const referencePoint = containerRect.top + containerRect.height / 2;
 
     let nearestPage = currentPage;
     let nearestDistance = Number.POSITIVE_INFINITY;
@@ -283,7 +277,7 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
       if (!pageElement) continue;
 
       const pageRect = pageElement.getBoundingClientRect();
-      const center = pageRect.left + pageRect.width / 2;
+      const center = pageRect.top + pageRect.height / 2;
 
       const distance = Math.abs(center - referencePoint);
       if (distance < nearestDistance) {
@@ -328,14 +322,14 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
 
       <main
         ref={containerRef}
-        className="flex-1 overflow-x-auto overflow-y-hidden"
+        className="flex-1 overflow-x-hidden overflow-y-auto"
         style={{
           backgroundColor: "hsl(var(--viewer-bg))",
-          touchAction: "pan-x pinch-zoom",
+          touchAction: "pan-y pinch-zoom",
         }}
         onScroll={syncCurrentPageFromScroll}
       >
-        <div className="flex min-h-full w-max items-center gap-6 px-6 py-4">
+        <div className="mx-auto flex min-h-full w-full flex-col items-center gap-4 px-3 py-3 sm:px-4 sm:py-4">
           {isLoading && (
             <div className="mt-24 flex flex-col items-center justify-center gap-3 text-muted-foreground">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -365,7 +359,7 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
                   if (node) pageRefs.current.set(pageNum, node);
                   else pageRefs.current.delete(pageNum);
                 }}
-                className="page-shadow shrink-0 overflow-hidden rounded-sm bg-card"
+                className="page-shadow overflow-hidden rounded-sm bg-card"
                 style={{ userSelect: "text", WebkitUserSelect: "text" }}
               >
                 <canvas
