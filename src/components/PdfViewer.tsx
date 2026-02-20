@@ -245,8 +245,8 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
 
         {!isLoading && !error && (
           <>
-            {/* Page nav – desktop only */}
-            <div className="hidden sm:flex items-center gap-1">
+            {/* Page navigation */}
+            <div className="flex items-center gap-1">
               <button className="toolbar-btn" onClick={() => navigate(-1)} disabled={currentPage <= 1} aria-label="Vorherige Seite">
                 <ChevronLeft className="w-5 h-5" />
               </button>
@@ -274,7 +274,7 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
                 <ZoomOut className="w-4 h-4" />
               </button>
               <button
-                className={`text-xs min-w-[44px] text-center transition-colors px-1 py-0.5 rounded ${isFitMode ? "text-primary bg-white/20" : "text-white/80 hover:text-white"}`}
+                className={`text-xs min-w-[44px] text-center transition-colors px-1 py-0.5 rounded ${isFitMode ? "text-white bg-white/20" : "text-white/80 hover:text-white"}`}
                 onClick={fitWidth}
                 title="An Breite anpassen"
               >
@@ -334,30 +334,6 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
         </div>
       </main>
 
-      {/* Mobile bottom bar */}
-      {!isLoading && !error && (
-        <nav className="flex sm:hidden items-center justify-between px-6 py-3 border-t border-border bg-card shrink-0">
-          <button
-            onClick={() => navigate(-1)}
-            disabled={currentPage <= 1}
-            className="flex items-center gap-1 text-sm font-medium text-primary disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Zurück
-          </button>
-          <span className="text-sm text-muted-foreground font-medium">
-            {currentPage} / {numPages}
-          </span>
-          <button
-            onClick={() => navigate(1)}
-            disabled={currentPage >= numPages}
-            className="flex items-center gap-1 text-sm font-medium text-primary disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors"
-          >
-            Weiter
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </nav>
-      )}
     </div>
   );
 };
