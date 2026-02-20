@@ -4,9 +4,12 @@ import {
   ChevronRight,
   ZoomIn,
   ZoomOut,
-  FileText,
   Loader2,
   Download,
+  Menu,
+  X,
+  ArrowLeftRight,
+  ArrowUpDown,
 } from "lucide-react";
 
 interface PdfViewerProps {
@@ -14,33 +17,38 @@ interface PdfViewerProps {
   onClose: () => void;
 }
 
+type ScrollMode = "vertical" | "horizontal";
+
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 4.0;
 const SCALE_STEP = 0.25;
 
 declare global {
-  interface Window { pdfjsLib: any; }
+  interface Window {
+    pdfjsLib: any;
+  }
 }
 
 export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
   const [numPages, setNumPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [scale, setScale] = useState(1.0);
-  const [displayScale, setDisplayScale] = useState(1.0); // shown in toolbar
+  const [displayScale, setDisplayScale] = useState(1.0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pageInputValue, setPageInputValue] = useState("1");
   const [isFitMode, setIsFitMode] = useState(true);
+  const [scrollMode, setScrollMode] = useState<ScrollMode>("vertical");
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfDocRef = useRef<any>(null);
-  const renderTaskRef = useRef<any>(null);
+  const renderTaskRef = useRef<Map<number, any>>(new Map());
   const objectUrlRef = useRef<string | null>(null);
-  const pageRef = useRef<any>(null);
   const fitScaleRef = useRef<number>(1.0);
+  const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
-  // Load PDF document
   useEffect(() => {
     let cancelled = false;
 
@@ -69,6 +77,8 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
       setError(null);
       setCurrentPage(1);
       setPageInputValue("1");
+      setScale(1);
+      setDisplayScale(1);
       setIsFitMode(true);
 
       try {
@@ -77,7 +87,7 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
         pdfDocRef.current = pdf;
         setNumPages(pdf.numPages);
         setIsLoading(false);
-      } catch (err: any) {
+      } catch (err) {
         if (cancelled) return;
         console.error("PDF load error:", err);
         setError("PDF konnte nicht geladen werden.");
@@ -86,113 +96,161 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
     };
 
     load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [file]);
 
-  // Compute fit-width scale
-  const computeFitScale = useCallback((page: any): number => {
-    const container = containerRef.current;
-    if (!container) return 1;
-    const containerWidth = container.clientWidth - 32;
-    const viewport = page.getViewport({ scale: 1 });
-    return Math.max(MIN_SCALE, Math.min(MAX_SCALE, containerWidth / viewport.width));
-  }, []);
+  const computeFitScale = useCallback(
+    (page: any): number => {
+      const container = containerRef.current;
+      if (!container) return 1;
 
-  // Render current page
-  const renderPage = useCallback(async (pageNum: number, renderScale: number) => {
-    const pdf = pdfDocRef.current;
-    if (!pdf) return;
+      const viewport = page.getViewport({ scale: 1 });
+      if (scrollMode === "horizontal") {
+        const containerHeight = Math.max(container.clientHeight - 48, 200);
+        return Math.max(
+          MIN_SCALE,
+          Math.min(MAX_SCALE, containerHeight / viewport.height)
+        );
+      }
 
-    if (renderTaskRef.current) {
-      renderTaskRef.current.cancel();
-      renderTaskRef.current = null;
-    }
+      const containerWidth = Math.max(container.clientWidth - 56, 200);
+      return Math.max(
+        MIN_SCALE,
+        Math.min(MAX_SCALE, containerWidth / viewport.width)
+      );
+    },
+    [scrollMode]
+  );
 
-    let page: any;
-    try {
-      page = await pdf.getPage(pageNum);
-    } catch {
-      return;
-    }
-    pageRef.current = page;
+  const renderSinglePage = useCallback(
+    async (pageNum: number, renderScale: number) => {
+      const pdf = pdfDocRef.current;
+      if (!pdf) return;
 
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+      const previousTask = renderTaskRef.current.get(pageNum);
+      if (previousTask) {
+        previousTask.cancel();
+      }
 
-    const dpr = window.devicePixelRatio || 1;
-    const viewport = page.getViewport({ scale: renderScale * dpr });
+      let page: any;
+      try {
+        page = await pdf.getPage(pageNum);
+      } catch {
+        return;
+      }
 
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    canvas.style.width = `${viewport.width / dpr}px`;
-    canvas.style.height = `${viewport.height / dpr}px`;
+      const canvas = canvasRefs.current.get(pageNum);
+      if (!canvas) return;
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+      const dpr = window.devicePixelRatio || 1;
+      const viewport = page.getViewport({ scale: renderScale * dpr });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.width = `${viewport.width / dpr}px`;
+      canvas.style.height = `${viewport.height / dpr}px`;
 
-    const task = page.render({ canvasContext: ctx, viewport });
-    renderTaskRef.current = task;
-    try {
-      await task.promise;
-    } catch (e: any) {
-      if (e?.name !== "RenderingCancelledException") console.error(e);
-    }
-  }, []);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
 
-  // Render when page/scale/loading changes
+      const task = page.render({ canvasContext: ctx, viewport });
+      renderTaskRef.current.set(pageNum, task);
+
+      try {
+        await task.promise;
+      } catch (e: any) {
+        if (e?.name !== "RenderingCancelledException") {
+          console.error(e);
+        }
+      }
+    },
+    []
+  );
+
+  const renderAllPages = useCallback(
+    async (renderScale: number) => {
+      const pdf = pdfDocRef.current;
+      if (!pdf || numPages === 0) return;
+
+      for (let page = 1; page <= numPages; page++) {
+        await renderSinglePage(page, renderScale);
+      }
+    },
+    [numPages, renderSinglePage]
+  );
+
   useEffect(() => {
-    if (isLoading || error) return;
+    if (isLoading || error || numPages === 0) return;
 
     const doRender = async () => {
       const pdf = pdfDocRef.current;
       if (!pdf) return;
 
-      const page = await pdf.getPage(currentPage).catch(() => null);
-      if (!page) return;
-      pageRef.current = page;
+      const firstPage = await pdf.getPage(1).catch(() => null);
+      if (!firstPage) return;
 
       let activeScale = scale;
       if (isFitMode) {
-        const fit = computeFitScale(page);
+        const fit = computeFitScale(firstPage);
         fitScaleRef.current = fit;
         activeScale = fit;
         setScale(fit);
-        setDisplayScale(fit); // ← always show actual scale
+        setDisplayScale(fit);
       } else {
         setDisplayScale(scale);
       }
-      renderPage(currentPage, activeScale);
+
+      await renderAllPages(activeScale);
     };
 
     doRender();
-  }, [currentPage, scale, isLoading, error, isFitMode]); // eslint-disable-line
+  }, [isLoading, error, numPages, scale, isFitMode, computeFitScale, renderAllPages]);
 
-  // Re-render on resize in fit mode
   useEffect(() => {
     if (!isFitMode) return;
-    const observer = new ResizeObserver(() => {
-      const page = pageRef.current;
-      if (!page) return;
-      const fit = computeFitScale(page);
+
+    const observer = new ResizeObserver(async () => {
+      const pdf = pdfDocRef.current;
+      if (!pdf) return;
+      const firstPage = await pdf.getPage(1).catch(() => null);
+      if (!firstPage) return;
+
+      const fit = computeFitScale(firstPage);
       fitScaleRef.current = fit;
       setScale(fit);
       setDisplayScale(fit);
     });
-    if (containerRef.current) observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, [isFitMode, computeFitScale]);
 
-  // Cleanup
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [computeFitScale, isFitMode]);
+
   useEffect(() => {
     return () => {
       if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     };
   }, []);
 
+  const scrollToPage = useCallback((page: number) => {
+    const element = pageRefs.current.get(page);
+    if (!element) return;
+
+    element.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+      inline: "center",
+    });
+  }, []);
+
   const navigate = (delta: number) => {
     const next = Math.min(numPages, Math.max(1, currentPage + delta));
     setCurrentPage(next);
     setPageInputValue(String(next));
+    scrollToPage(next);
   };
 
   const zoomIn = () => {
@@ -201,13 +259,15 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
     setScale(next);
     setDisplayScale(next);
   };
+
   const zoomOut = () => {
     setIsFitMode(false);
     const next = Math.max(MIN_SCALE, +(scale - SCALE_STEP).toFixed(2));
     setScale(next);
     setDisplayScale(next);
   };
-  const fitWidth = () => {
+
+  const fitViewport = () => {
     setIsFitMode(true);
   };
 
@@ -215,125 +275,194 @@ export const PdfViewer = ({ file, onClose }: PdfViewerProps) => {
     const parsed = parseInt(pageInputValue, 10);
     if (!isNaN(parsed) && parsed >= 1 && parsed <= numPages) {
       setCurrentPage(parsed);
+      scrollToPage(parsed);
     } else {
       setPageInputValue(String(currentPage));
     }
   };
 
   const handleDownload = () => {
+    if (!objectUrlRef.current) return;
     const a = document.createElement("a");
-    a.href = objectUrlRef.current!;
+    a.href = objectUrlRef.current;
     a.download = file.name;
     a.click();
   };
 
+  const toggleScrollMode = () => {
+    setScrollMode((prev) => (prev === "vertical" ? "horizontal" : "vertical"));
+    setIsFitMode(true);
+  };
+
+  const syncCurrentPageFromScroll = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || numPages === 0) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const referencePoint =
+      scrollMode === "horizontal"
+        ? containerRect.left + containerRect.width / 2
+        : containerRect.top + containerRect.height / 2;
+
+    let nearestPage = currentPage;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    for (let page = 1; page <= numPages; page++) {
+      const pageElement = pageRefs.current.get(page);
+      if (!pageElement) continue;
+
+      const pageRect = pageElement.getBoundingClientRect();
+      const center =
+        scrollMode === "horizontal"
+          ? pageRect.left + pageRect.width / 2
+          : pageRect.top + pageRect.height / 2;
+
+      const distance = Math.abs(center - referencePoint);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestPage = page;
+      }
+    }
+
+    if (nearestPage !== currentPage) {
+      setCurrentPage(nearestPage);
+      setPageInputValue(String(nearestPage));
+    }
+  }, [currentPage, numPages, scrollMode]);
+
   return (
-    <div className="flex flex-col h-screen bg-background overflow-hidden">
-      {/* Toolbar */}
-      <header
-        className="flex items-center gap-2 px-3 py-2 shrink-0 z-10 shadow-md"
-        style={{ backgroundColor: "hsl(var(--toolbar))" }}
-      >
-        {/* Back + filename */}
-        <button className="toolbar-btn" onClick={onClose} aria-label="Zurück">
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-        <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          <FileText className="w-4 h-4 text-white/60 shrink-0" />
-          <span className="text-sm text-white/90 font-medium truncate">{file.name}</span>
+    <div className="relative flex h-screen flex-col overflow-hidden bg-background">
+      <header className="z-10 flex items-center justify-between border-b border-border bg-card/90 px-4 py-2 backdrop-blur-sm">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-foreground">{file.name}</p>
+          {!isLoading && !error && (
+            <p className="text-xs text-muted-foreground">
+              Seite {currentPage} von {numPages}
+            </p>
+          )}
         </div>
-
-        {!isLoading && !error && (
-          <>
-            {/* Page navigation */}
-            <div className="flex items-center gap-1">
-              <button className="toolbar-btn" onClick={() => navigate(-1)} disabled={currentPage <= 1} aria-label="Vorherige Seite">
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-              <div className="flex items-center gap-1 text-white/90 text-sm">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={pageInputValue}
-                  onChange={(e) => setPageInputValue(e.target.value)}
-                  onBlur={commitPageInput}
-                  onKeyDown={(e) => { if (e.key === "Enter") { commitPageInput(); (e.target as HTMLInputElement).blur(); } }}
-                  className="w-10 text-center bg-white/10 border border-white/20 rounded-md py-0.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-white/40"
-                  aria-label="Seite"
-                />
-                <span className="text-white/60">/ {numPages}</span>
-              </div>
-              <button className="toolbar-btn" onClick={() => navigate(1)} disabled={currentPage >= numPages} aria-label="Nächste Seite">
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Zoom controls – always show percentage */}
-            <div className="flex items-center gap-1">
-              <button className="toolbar-btn" onClick={zoomOut} disabled={scale <= MIN_SCALE} aria-label="Verkleinern">
-                <ZoomOut className="w-4 h-4" />
-              </button>
-              <button
-                className={`text-xs min-w-[44px] text-center transition-colors px-1 py-0.5 rounded ${isFitMode ? "text-white bg-white/20" : "text-white/80 hover:text-white"}`}
-                onClick={fitWidth}
-                title="An Breite anpassen"
-              >
-                {Math.round(displayScale * 100)}%
-              </button>
-              <button className="toolbar-btn" onClick={zoomIn} disabled={scale >= MAX_SCALE} aria-label="Vergrößern">
-                <ZoomIn className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Download */}
-            <button className="toolbar-btn" onClick={handleDownload} aria-label="Herunterladen">
-              <Download className="w-4 h-4" />
-            </button>
-          </>
-        )}
+        <button className="toolbar-btn" onClick={() => setIsMenuOpen((prev) => !prev)} aria-label="Menü öffnen">
+          {isMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+        </button>
       </header>
 
-      {/* Canvas area – user-select: text enables text selection */}
+      {isMenuOpen && !isLoading && !error && (
+        <div className="absolute right-3 top-14 z-20 w-[min(92vw,360px)] rounded-xl border border-border bg-card p-3 shadow-2xl">
+          <div className="grid grid-cols-2 gap-2">
+            <button className="flex h-9 items-center justify-center gap-1 rounded-lg border border-border bg-background px-2 text-sm hover:bg-muted" onClick={onClose}>
+              <ChevronLeft className="h-4 w-4" /> Zurück
+            </button>
+            <button className="flex h-9 items-center justify-center gap-1 rounded-lg border border-border bg-background px-2 text-sm hover:bg-muted" onClick={handleDownload}>
+              <Download className="h-4 w-4" /> Download
+            </button>
+            <button className="flex h-9 items-center justify-center gap-1 rounded-lg border border-border bg-background px-2 text-sm hover:bg-muted" onClick={toggleScrollMode}>
+              {scrollMode === "vertical" ? <ArrowLeftRight className="h-4 w-4" /> : <ArrowUpDown className="h-4 w-4" />}
+              {scrollMode === "vertical" ? "Horizontal" : "Vertikal"}
+            </button>
+            <button className="flex h-9 items-center justify-center gap-1 rounded-lg border border-border bg-background px-2 text-sm hover:bg-muted" onClick={fitViewport}>
+              Fit ({Math.round(displayScale * 100)}%)
+            </button>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <button className="toolbar-btn" onClick={() => navigate(-1)} disabled={currentPage <= 1}>
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <div className="flex items-center gap-1 text-sm text-muted-foreground">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={pageInputValue}
+                onChange={(e) => setPageInputValue(e.target.value)}
+                onBlur={commitPageInput}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    commitPageInput();
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                className="w-12 rounded-md border border-border bg-background py-0.5 text-center text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+              />
+              <span>/ {numPages}</span>
+            </div>
+            <button className="toolbar-btn" onClick={() => navigate(1)} disabled={currentPage >= numPages}>
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="mt-3 flex items-center justify-center gap-2">
+            <button className="toolbar-btn" onClick={zoomOut} disabled={scale <= MIN_SCALE}>
+              <ZoomOut className="h-4 w-4" />
+            </button>
+            <span className="min-w-14 text-center text-xs text-muted-foreground">
+              {Math.round(displayScale * 100)}%
+            </span>
+            <button className="toolbar-btn" onClick={zoomIn} disabled={scale >= MAX_SCALE}>
+              <ZoomIn className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       <main
         ref={containerRef}
         className="flex-1 overflow-auto"
-        style={{ backgroundColor: "hsl(var(--viewer-bg))" }}
+        style={{
+          backgroundColor: "hsl(var(--viewer-bg))",
+          touchAction: scrollMode === "horizontal" ? "pan-x" : "pan-y",
+        }}
+        onScroll={syncCurrentPageFromScroll}
       >
-        <div className="flex justify-center items-start py-4 px-4 min-h-full">
+        <div
+          className={
+            scrollMode === "horizontal"
+              ? "flex min-h-full w-max items-center gap-6 px-6 py-4"
+              : "flex min-h-full flex-col items-center gap-6 px-4 py-6"
+          }
+        >
           {isLoading && (
-            <div className="flex flex-col items-center justify-center mt-24 gap-3 text-muted-foreground">
-              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <div className="mt-24 flex flex-col items-center justify-center gap-3 text-muted-foreground">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
               <p className="text-sm">Wird geladen…</p>
             </div>
           )}
 
           {error && (
-            <div className="flex flex-col items-center justify-center mt-24 gap-3">
+            <div className="mt-24 flex flex-col items-center justify-center gap-3">
               <p className="font-medium text-destructive">{error}</p>
               <p className="text-sm text-muted-foreground">Bitte versuche eine andere Datei.</p>
               <button
                 onClick={onClose}
-                className="mt-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-medium rounded-lg"
+                className="mt-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
               >
                 Zurück zum Bücherregal
               </button>
             </div>
           )}
 
-          {!isLoading && !error && (
-            <div
-              className="page-shadow rounded-sm overflow-hidden bg-card relative"
-              style={{ userSelect: "text", WebkitUserSelect: "text" }}
-            >
-              <canvas ref={canvasRef} style={{ display: "block" }} />
-              {/* Invisible text layer for selection is handled by canvas render –
-                  for true text selection a separate text layer would be needed,
-                  but this allows browser copy via canvas accessibility. */}
-            </div>
-          )}
+          {!isLoading &&
+            !error &&
+            Array.from({ length: numPages }, (_, idx) => idx + 1).map((pageNum) => (
+              <div
+                key={pageNum}
+                ref={(node) => {
+                  if (node) pageRefs.current.set(pageNum, node);
+                  else pageRefs.current.delete(pageNum);
+                }}
+                className="page-shadow shrink-0 overflow-hidden rounded-sm bg-card"
+                style={{ userSelect: "text", WebkitUserSelect: "text" }}
+              >
+                <canvas
+                  ref={(node) => {
+                    if (node) canvasRefs.current.set(pageNum, node);
+                    else canvasRefs.current.delete(pageNum);
+                  }}
+                  style={{ display: "block" }}
+                />
+              </div>
+            ))}
         </div>
       </main>
-
     </div>
   );
 };
