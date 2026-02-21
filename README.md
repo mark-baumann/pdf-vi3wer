@@ -52,6 +52,13 @@ Die Anwendung ist aktuell auf einfache Nutzung ohne Login ausgelegt (öffentlich
 - Gespeicherter Zoom-Faktor via Cookie
 - Auto-Fit-Modus beim Öffnen (wenn kein gespeicherter Zoom vorhanden)
 
+### Progressive Web App (PWA)
+
+- Installierbar auf Desktop und Mobilgerät (Standalone-Modus)
+- Service Worker mit Auto-Update
+- Caching für App-Shell, Bilder, CDN-Assets und bereits geladene PDFs
+- Offline-Statusanzeige in der Oberfläche
+
 ### Cloud-Anbindung
 
 - Upload in Supabase Storage Bucket `pdfs`
