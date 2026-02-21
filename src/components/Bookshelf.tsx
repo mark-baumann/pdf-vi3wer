@@ -1,5 +1,6 @@
 import { useRef, useCallback } from "react";
 import { Plus, FileText, Trash2, BookOpen, Loader2 } from "lucide-react";
+import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
 import type { PdfEntry } from "@/types/pdf";
 
 export type { PdfEntry };
@@ -195,13 +196,16 @@ export const Bookshelf = ({ books, onAdd, onOpen, onRemove }: BookshelfProps) =>
             )}
           </div>
         </div>
-        <button
+        <div className="flex items-center gap-2">
+          <PwaInstallPrompt />
+          <button
           onClick={() => inputRef.current?.click()}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 transition-colors active:scale-95 shadow-sm"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>Hinzufügen</span>
         </button>
+        </div>
       </header>
 
       <main className="flex-1 px-4 py-5">
