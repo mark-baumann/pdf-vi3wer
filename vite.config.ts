@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => ({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.ico", "robots.txt", "pdf-icon.svg", "placeholder.svg"],
+      includeAssets: ["robots.txt", "pdf-icon.svg", "placeholder.svg"],
       manifest: {
         name: "PDF Vi3wer",
         short_name: "PDF Vi3wer",
@@ -34,12 +34,6 @@ export default defineConfig(({ mode }) => ({
             sizes: "any",
             type: "image/svg+xml",
             purpose: "any maskable",
-          },
-          {
-            src: "/favicon.ico",
-            sizes: "48x48 32x32 16x16",
-            type: "image/x-icon",
-            purpose: "any",
           },
         ],
       },
