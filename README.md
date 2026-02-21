@@ -234,6 +234,6 @@ Empfehlungen für Produktion:
 
 ## Lizenz
 
-Aktuell keine explizite Lizenzdatei vorhanden.
+Dieses Projekt steht unter der **GNU General Public License v3.0 (oder neuer)**.
 
-Wenn das Projekt öffentlich genutzt werden soll, ergänze eine `LICENSE` (z. B. MIT, Apache-2.0 oder GPLv3).
+Details findest du in der Datei [`LICENSE`](./LICENSE).
