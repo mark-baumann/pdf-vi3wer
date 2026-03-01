@@ -1,0 +1,16 @@
+{
+  "name": "PDF Vi3wer",
+  "short_name": "PDF Vi3wer",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "https://upload.wikimedia.org/wikipedia/commons/8/87/PDF_file_icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
