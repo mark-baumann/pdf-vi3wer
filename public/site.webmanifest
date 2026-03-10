@@ -7,7 +7,7 @@
   "theme_color": "#2563eb",
   "icons": [
     {
-      "src": "https://upload.wikimedia.org/wikipedia/commons/8/87/PDF_file_icon.svg",
+      "src": "/pdf-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"

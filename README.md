@@ -142,6 +142,16 @@ VITE_SUPABASE_PUBLISHABLE_KEY=<your-anon-or-publishable-key>
 
 > Wichtig: Ohne diese Variablen kann der Supabase-Client nicht initialisiert werden.
 
+
+## App-Icon (Android & iOS)
+
+Das App-Icon wird als **SVG** eingebunden (keine zusätzliche Binärdatei notwendig):
+
+- Icon-Datei: `/public/pdf-icon.svg`
+- Direkter Link in der laufenden App: `/pdf-icon.svg`
+
+Diese URL wird sowohl im Web App Manifest (Android/PWA) als auch als `apple-touch-icon` (iOS) verwendet.
+
 ## Verfügbare Skripte
 
 ```bash
